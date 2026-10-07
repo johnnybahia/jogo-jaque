@@ -1,0 +1,37 @@
+name: Beach Tênis - build e merge automático
+# Branches claude/** : se o build passar, faz merge em main e dispara a publicação.
+on:
+  push:
+    branches: ["claude/**"]
+permissions:
+  contents: write
+  actions: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: beach-tenis
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: beach-tenis/package-lock.json
+      - run: npm ci
+        working-directory: beach-tenis
+      - run: npm run build
+        working-directory: beach-tenis
+  merge:
+    needs: check
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Merge em main
+        run: |
+          gh api -X POST "repos/${{ github.repository }}/merges" -f base=main -f head="${{ github.ref_name }}" -f commit_message="Merge automático de ${{ github.ref_name }}"
+      - name: Apaga a branch
+        run: gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${{ github.ref_name }}" || true
+      - name: Dispara a publicação
+        run: gh workflow run beach-tenis-deploy.yml --repo "${{ github.repository }}" --ref main

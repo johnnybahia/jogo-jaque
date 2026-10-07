@@ -1,0 +1,44 @@
+name: Beach Tênis - publicar
+on:
+  push:
+    branches: [main]
+    paths: ["beach-tenis/**", ".github/workflows/beach-tenis-*.yml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: beach-tenis
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: beach-tenis/package-lock.json
+      - run: npm ci
+        working-directory: beach-tenis
+      - run: npm run build
+        working-directory: beach-tenis
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: beach-tenis/dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.d.outputs.page_url }}
+    steps:
+      - id: d
+        uses: actions/deploy-pages@v4
