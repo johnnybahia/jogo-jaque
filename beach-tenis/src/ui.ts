@@ -2,6 +2,7 @@ import { Game } from "./game";
 import { S, DEFAULTS, saveSettings, Settings } from "./settings";
 import { cueState, cueProgress } from "./cuemark";
 import { mountPwaUI } from "./pwaui";
+import { STROKES } from "./strokes";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type Spec = { key: keyof Settings; label: string; min: number; max: number; step: number; recalc?: boolean };
@@ -13,6 +14,10 @@ const SPECS: Array<[string, Spec[]]> = [
     { key: "ballSpeed", label: "Velocidade da bola (m/s)", min: 6, max: 16, step: 0.5 },
     { key: "aimSpread", label: "Dispersão da mira (m)", min: 0, max: 2.5, step: 0.1 },
     { key: "timeScale", label: "Velocidade das animações", min: 0.5, max: 1.5, step: 0.05 },
+  ]],
+  ["Câmera", [
+    { key: "camSens", label: "Sensibilidade do giro (×)", min: 0.4, max: 2.5, step: 0.1 },
+    { key: "camDist", label: "Distância / zoom (m)", min: 1.8, max: 14, step: 0.1 },
   ]],
   ["Marcas dos pés", [{ key: "footLife", label: "Duração (s)", min: 5, max: 60, step: 1 }]],
   ["Sincronia", [{ key: "contactOffset", label: "Ajuste do contato (frames)", min: -10, max: 10, step: 1, recalc: true }]],
@@ -52,7 +57,12 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   // teclado
   const keys = new Set<string>();
   const kbd = () => { game.input.right = (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0); game.input.fwd = (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0); };
-  addEventListener("keydown", (e) => { const k = e.key.toLowerCase(); if (k === " ") { game.manualSwing(); e.preventDefault(); } else if (k === "enter") game.serve(); else { keys.add(k); kbd(); } });
+  addEventListener("keydown", (e) => {
+    const k = e.key.toLowerCase();
+    if (k === " ") { game.manualSwing(); e.preventDefault(); } else if (k === "enter") game.serve();
+    else if (k === "q") game.orbit(0.12, 0); else if (k === "e") game.orbit(-0.12, 0); else if (k === "+" || k === "=") game.zoom(0.9); else if (k === "-") game.zoom(1.1); else if (k === "r") game.recenter();
+    else { keys.add(k); kbd(); }
+  });
   addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); kbd(); });
   $("swingBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); game.manualSwing(); });
   // aviso de tempo: o anel em volta do GOLPE encolhe até fechar no botão (apertar agora); verde = janela de acerto
@@ -64,6 +74,22 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   };
   $("serveBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); if (game.state !== "rally") game.serve(); });
 
+  // câmera: arrastar (um dedo ou mouse) gira 360° em volta da jogadora; pinça, roda do mouse ou ＋/－ = zoom; ⟲ recentraliza
+  const camZone = $("camZone"), ptrs = new Map<number, { x: number; y: number }>(); let pinch = 0;
+  const pdist = () => { const [a, b] = [...ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  camZone.addEventListener("pointerdown", (e) => { camZone.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); pinch = ptrs.size === 2 ? pdist() : 0; });
+  camZone.addEventListener("pointermove", (e) => {
+    const q = ptrs.get(e.pointerId); if (!q) return; const dx = e.clientX - q.x, dy = e.clientY - q.y; q.x = e.clientX; q.y = e.clientY;
+    if (ptrs.size === 1) game.orbit(-dx * 0.0075 * S.camSens, dy * 0.005 * S.camSens);
+    else if (ptrs.size === 2) { const d = pdist(); if (pinch > 0 && d > 0) game.zoom(pinch / d); pinch = d; }
+  });
+  const camEnd = (e: PointerEvent) => { if (ptrs.delete(e.pointerId)) { pinch = 0; saveSettings(); } };
+  camZone.addEventListener("pointerup", camEnd); camZone.addEventListener("pointercancel", camEnd);
+  camZone.addEventListener("wheel", (e) => { e.preventDefault(); game.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
+  $("zoomIn").addEventListener("click", () => { game.zoom(0.85); saveSettings(); });
+  $("zoomOut").addEventListener("click", () => { game.zoom(1.18); saveSettings(); });
+  $("camReset").addEventListener("click", () => game.recenter());
+
   // painel
   const panel = $("panel"); $("gear").addEventListener("click", () => { panel.hidden = !panel.hidden; if (!panel.hidden) renderLog(); });
   const logEl = document.createElement("pre");
@@ -72,6 +98,17 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   mountPwaUI($("installChip") as HTMLButtonElement, pwaBox, () => { panel.hidden = false; renderLog(); });
   const build = () => {
     panel.innerHTML = `<b>Beach Tênis</b> <small>v${version}</small>`; panel.appendChild(pwaBox);
+    const gh = document.createElement("h3"); gh.textContent = "Golpes do vídeo (toque para ver)"; panel.appendChild(gh);
+    const chips = document.createElement("div"); chips.className = "chips"; const turn = new Map<string, number>();
+    for (const st of STROKES) {
+      const b = document.createElement("button"); b.textContent = st.label;
+      b.onclick = () => {
+        const i = turn.get(st.key) ?? 0; turn.set(st.key, i + 1); const clip = st.clips[i % st.clips.length];
+        if (game.previewStroke(clip)) panel.hidden = true; else game.onToast("Termine o rali para ver o golpe");
+      };
+      chips.appendChild(b);
+    }
+    panel.appendChild(chips);
     const chk = (key: "auto" | "autoServe" | "footprints", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); }; panel.appendChild(l); };
     chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("footprints", "Marcas dos pés na areia");
     for (const [title, specs] of SPECS) {
