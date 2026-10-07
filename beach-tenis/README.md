@@ -10,6 +10,7 @@ PWA 3D (Vite + TypeScript + Three.js) para **ajustar os movimentos** do jogo de 
 - **Saque:** começa com o saque da jogadora (ela lança a bola e saca com o movimento do vídeo); depois a bola vai para a parede.
 - **Fôlego (stamina):** a barra "Fôlego" (canto superior esquerdo) gasta com a corrida e com cada golpe (golpes por cima gastam mais) e recupera entre os pontos; com pouco fôlego a Jaqueline corre mais devagar (até 55%) e o treino manda bolas mais perto. Liga/desliga em ⚙.
 - **Rede:** o risco azul da parede está em 1,70 m (altura da rede de beach tênis); a bola precisa bater na parede acima dele.
+- **Depois do ponto:** ela reage (suspira se erra logo; comemora em recorde) e volta andando à posição de saque antes de sacar de novo.
 - **Bola viva (sem quique):** no beach tênis a bola é rebatida no ar. O primeiro toque na areia encerra o ponto.
 - **Rebater:** o jogo mostra *onde* ficar (anel no chão) e *quando* apertar GOLPE (anel que fecha; verde = agora). Fora do ponto ou do tempo o golpe falha ("Longe!", "Cedo!", "Tarde!"). Detalhes abaixo.
 - ⚙ abre o painel de ajustes: modo fácil (o jogo aperta na hora), raio de posição, janela de tempo, sincronia do contato (±frames), raio de acerto da bola, velocidade da bola, escala da jogadora e posição/rotação da raquete na mão. Os valores ficam salvos no aparelho. "Copiar log" exporta o registro de golpes (gap mão×bola em cm).
