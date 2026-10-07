@@ -19,13 +19,14 @@ export function buildEnvironment(scene: THREE.Scene, base: string): void {
   sand.wrapS = sand.wrapT = THREE.RepeatWrapping; sand.repeat.set(30, 30);
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 }));
   floor.rotation.x = -Math.PI / 2; scene.add(floor);
-  // textura de areia opcional: coloque public/textures/sand.jpg (ladrilhável) e ela substitui a procedural
+  // texturas PBR de areia (Poly Haven "aerial_beach_01", CC0) — opcionais: se faltarem, fica a procedural
+  const fm = floor.material as THREE.MeshStandardMaterial;
+  const tl = new THREE.TextureLoader(); const rep = (t: THREE.Texture, srgb: boolean) => { if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30); t.anisotropy = 8; return t; };
   fetch(base + "textures/sand.jpg", { method: "HEAD" }).then((r) => {
     if (!r.ok) return;
-    new THREE.TextureLoader().load(base + "textures/sand.jpg", (t) => {
-      t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(24, 24); t.anisotropy = 4;
-      const m = floor.material as THREE.MeshStandardMaterial; m.map = t; m.needsUpdate = true;
-    });
+    tl.load(base + "textures/sand.jpg", (t) => { fm.map = rep(t, true); fm.needsUpdate = true; });
+    tl.load(base + "textures/sand_nor.jpg", (t) => { fm.normalMap = rep(t, false); fm.normalScale.set(0.8, 0.8); fm.needsUpdate = true; });
+    tl.load(base + "textures/sand_rough.jpg", (t) => { fm.roughnessMap = rep(t, false); fm.needsUpdate = true; });
   }).catch(() => {});
 
   const faceTex = canvasTex(512, 256, (c) => {

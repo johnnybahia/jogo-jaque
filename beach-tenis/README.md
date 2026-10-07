@@ -25,7 +25,7 @@ npm ci
 npm run dev        # http://localhost:5173
 npm run build      # gera dist/ + sw.js + version.json
 ```
-Textura de areia: coloque `public/textures/sand.jpg` (ladrilhável); se existir, substitui a procedural.
+Areia: texturas PBR em `public/textures/` (Poly Haven "aerial_beach_01", CC0); se faltarem, usa a procedural.
 
 ## Pipeline de animação (`tools/`)
 `segment.py → select.py → retarget.py` (BVH do Tennis-MoCap → ossos Mixamo) → `add_loco.py` (idle/corrida Mixamo, in-place) → `inplace.py` → `export_glb.py`; `make_assets.py` converte raquete (FBX) e bola (GLB). Detalhes e limitações em `docs/CONTEXTO_BEACH_TENIS.md`.
