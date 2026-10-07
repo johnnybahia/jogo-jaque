@@ -6,6 +6,7 @@ import { cleanWrists, WristTwist } from "./wrist";
 import { applyReadyPose } from "./ready";
 import { Loco, LOCO_CLIPS } from "./loco";
 import { isVideoClip, strokeOf } from "./strokes";
+import { isDance } from "./dance";
 
 export interface ClipMeta { name: string; kind: string; contact_time?: number; frames: number; duration?: number; speed_x_m_s?: number; speed_z_m_s?: number; }
 export const LOCO = ["idle", "run_f", "run_b", "run_l", "run_r"] as const;
@@ -73,11 +74,20 @@ export class Rig {
         if (!SWINGS.includes(c.name)) SWINGS.push(c.name);
       }
     } catch { /* sem video_clips.glb: ficam só os golpes de mocap de tênis */ }
+    // danças de vitória (Samba Dancing e Gangnam Style do pacote Mixamo do autor, dance.glb): só a rotação dos ossos e a posição do quadril, como a locomoção
+    try {
+      const dg = await loader.loadAsync(base + "models/dance.glb"), have = new Set(gltf.animations.map((c) => c.name));
+      for (const c of dg.animations) {
+        if (have.has(c.name) || !isDance(c.name)) continue;
+        c.tracks = c.tracks.filter((t) => t.name.endsWith(".quaternion") || /Hips\.position$/.test(t.name)); gltf.animations.push(c);
+        this.meta[c.name] = { name: c.name, kind: "dance", frames: Math.round(c.duration * 30), duration: c.duration };
+      }
+    } catch { /* sem dance.glb: o vencedor não dança */ }
     const isLoco = (n: string) => (LOCO as readonly string[]).includes(n) || LOCO_CLIPS.includes(n);
     this.model = gltf.scene as THREE.Group;
     const skinned: THREE.SkinnedMesh[] = [];
     this.model.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { skinned.push(m); m.frustumCulled = false; m.castShadow = false; for (const mt of Array.isArray(m.material) ? m.material : [m.material]) fixSkinMaterial(mt); } });
-    cleanWrists(gltf.animations, WristTwist.hands(this.model), (n) => !isLoco(n) && !isVideoClip(n));
+    cleanWrists(gltf.animations, WristTwist.hands(this.model), (n) => !isLoco(n) && !isVideoClip(n) && !isDance(n));
     if (skinned[0]) this.twist = WristTwist.attach(skinned[0]);
     this.root.add(this.model);
     this.model.traverse((o) => { if (!this.hand && /RightHand$/.test(o.name)) this.hand = o; if (!this.leftHand && /LeftHand$/.test(o.name)) this.leftHand = o; });

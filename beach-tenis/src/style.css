@@ -60,9 +60,12 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 #score .sc-row.you .sc-name{color:#fff}#score .sc-row.opp .sc-name{color:#cfe3f4}
 #score .sc-foot{font-size:10px;font-weight:700;opacity:.75;text-align:center;margin-top:2px;letter-spacing:.03em}
 #score .dec{color:#ff6a00;opacity:1}
-#endCard{position:fixed;inset:0;z-index:6;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:#0b1620e6;text-align:center;padding:20px}
-#endCard h2{margin:0;font-size:38px;text-shadow:0 2px 8px #000a}#endCard p{margin:0;font-size:18px;font-weight:700;opacity:.92}#endCard small{opacity:.75}
-#endCard .btns{display:flex;gap:10px;margin-top:12px}#endCard button{border:0;border-radius:12px;padding:13px 20px;font-size:16px;font-weight:800;color:#fff;background:#2a3b4a}#endCard button.main{background:#ff6a00}
+#endCard{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;align-items:center;gap:4px;background:linear-gradient(#0b162000,#0b1620ee 36%);text-align:center;padding:48px 16px max(14px,env(safe-area-inset-bottom));pointer-events:none;animation:ecIn .6s ease both}
+#endCard button{pointer-events:auto}@keyframes ecIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+body.ended #btns,body.ended #joyZone,body.ended #leftBtns{display:none}
+@media (max-height:520px){#endCard{flex-direction:row;flex-wrap:wrap;justify-content:center;align-items:center;gap:2px 14px;padding:22px 12px 8px}#endCard h2{font-size:22px}#endCard p{font-size:14px}#endCard p:first-of-type,#endCard small{display:none}#endCard .btns{margin-top:0}#endCard button{padding:8px 16px;font-size:14px}}
+#endCard h2{margin:0;font-size:32px;text-shadow:0 2px 8px #000a}#endCard p{margin:0;font-size:18px;font-weight:700;opacity:.92}#endCard small{opacity:.75}
+#endCard .btns{display:flex;gap:10px;margin-top:8px}#endCard button{border:0;border-radius:12px;padding:13px 20px;font-size:16px;font-weight:800;color:#fff;background:#2a3b4a}#endCard button.main{background:#ff6a00}
 #cover{position:fixed;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;background:radial-gradient(120% 90% at 50% 0%,#1b6fb4 0%,#0d2b3e 62%,#07151f 100%);overflow:auto;padding:16px;touch-action:pan-y}
 .cv-card{width:min(380px,100%);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 .cv-logo{width:min(34vh,150px);height:auto;filter:drop-shadow(0 6px 14px #0008)}
