@@ -19,7 +19,7 @@ function pwa(): Plugin {
       const list = ["./", ...files.map((f) => "./" + f)];
       writeFileSync(join(out, "version.json"), JSON.stringify({ version: VERSION, time: new Date().toISOString() }));
       writeFileSync(join(out, "sw.js"), `const VERSION=${JSON.stringify(VERSION)};const CACHE="bt-"+VERSION;const FILES=${JSON.stringify(list)};
-self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(c=>Promise.all(FILES.map(f=>c.add(new Request(f,{cache:"reload"}))))))});
+self.addEventListener("install",e=>{e.waitUntil(caches.open(CACHE).then(async c=>{let n=0;const say=async()=>{for(const x of await self.clients.matchAll({includeUncontrolled:true}))x.postMessage({type:"progress",done:n,total:FILES.length})};await Promise.all(FILES.map(f=>c.add(new Request(f,{cache:"reload"})).then(()=>{n++;say()})))}))});
 self.addEventListener("message",e=>{if(e.data&&e.data.type==="SKIP_WAITING")self.skipWaiting()});
 self.addEventListener("activate",e=>{e.waitUntil((async()=>{for(const k of await caches.keys())if(k.startsWith("bt-")&&k!==CACHE)await caches.delete(k);await self.clients.claim()})())});
 self.addEventListener("fetch",e=>{const r=e.request;if(r.method!=="GET")return;const u=new URL(r.url);if(u.origin!==location.origin||u.pathname.endsWith("/version.json"))return;

@@ -4,6 +4,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 #hud{position:fixed;top:max(10px,env(safe-area-inset-top));left:12px;font-weight:700;text-shadow:0 1px 3px #000a}
 #rally{font-size:20px}#info{font-size:12px;opacity:.85;margin-top:2px;font-weight:500}
 #gear{position:fixed;top:max(8px,env(safe-area-inset-top));right:10px;width:44px;height:44px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:22px}
+#installChip{position:fixed;top:calc(max(10px,env(safe-area-inset-top)) + 46px);left:12px;border:0;border-radius:999px;padding:7px 13px;background:#ff6a00;color:#fff;font-weight:800;font-size:13px;box-shadow:0 2px 8px #0008}
+#installChip:disabled{background:#0b1620cc;color:#fff;font-weight:600}#installChip.ok{background:#1f9d55}
 #toast{position:fixed;top:22%;left:0;right:0;text-align:center;font-size:28px;font-weight:800;text-shadow:0 2px 6px #000b;opacity:0;transition:opacity .25s;pointer-events:none}
 #toast.on{opacity:1}
 #joyZone{position:fixed;left:0;bottom:0;width:55%;height:55%}
@@ -22,6 +24,8 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 #panel label{display:block;margin:7px 0}#panel label span{display:flex;justify-content:space-between}
 #panel input[type=range]{width:100%}
 #panel button{margin:6px 6px 0 0;padding:8px 12px;border-radius:8px;border:0;background:#2a3b4a;color:#fff}
+#pwaBox{margin:8px 0 2px;padding:8px 10px;border-radius:8px;background:#ffffff12;font-size:12px}#pwaBox .mut{opacity:.7}#pwaBox .ok{color:#5be08a}
+#pwaBox .bar{height:5px;border-radius:3px;background:#ffffff22;margin-top:5px;overflow:hidden}#pwaBox .bar i{display:block;height:100%;background:#ff6a00}
 #panel pre{white-space:pre-wrap;font-size:11px;max-height:160px;overflow:auto;background:#0006;padding:6px;border-radius:6px;user-select:text}
 #upd{position:fixed;left:50%;bottom:max(130px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:12px;align-items:center;background:#0b1620f2;border:1px solid #ff6a00;padding:10px 14px;border-radius:12px;font-weight:600;z-index:5}
 #upd button{background:#ff6a00;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:800}

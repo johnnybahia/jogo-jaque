@@ -3,7 +3,7 @@
 PWA 3D (Vite + TypeScript + Three.js) para **ajustar os movimentos** do jogo de beach tênis: a jogadora (Jaqueline, rig Mixamo) rebate a bola contra a parede com 12 golpes de mocap de tênis.
 
 ## Jogar
-- Celular: abra o link do GitHub Pages e use "Adicionar à tela inicial" (instala e funciona **offline**).
+- Celular: abra o link do GitHub Pages. Na 1ª visita o jogo baixa tudo para funcionar **offline** (progresso no canto da tela e em ⚙; "✓ Pronto offline" ao terminar). O botão **⬇ Instalar app** (canto superior esquerdo) aparece quando o navegador permite instalar; no iPhone: Compartilhar → Adicionar à Tela de Início.
 - Controles: joystick virtual (arraste na metade esquerda) ou WASD/setas; **GOLPE** (ou Espaço) no tempo certo; **SACAR** (ou Enter).
 - **Rebater:** o jogo mostra *onde* ficar (anel no chão) e *quando* apertar GOLPE (anel que fecha; verde = agora). Fora do ponto ou do tempo o golpe falha ("Longe!", "Cedo!", "Tarde!"). Detalhes abaixo.
 - ⚙ abre o painel de ajustes: modo fácil (o jogo aperta na hora), raio de posição, janela de tempo, sincronia do contato (±frames), raio de acerto da bola, velocidade/quique da bola, escala da jogadora e posição/rotação da raquete na mão. Os valores ficam salvos no aparelho. "Copiar log" exporta o registro de golpes (gap mão×bola em cm).
