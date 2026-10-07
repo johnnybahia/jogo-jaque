@@ -38,6 +38,7 @@ export class Rig {
   racket = new THREE.Group();
   head = new THREE.Object3D();
   hand: THREE.Object3D | null = null;
+  leftHand: THREE.Object3D | null = null;   // mão que lança a bola no saque
   contactLocal = new Map<string, THREE.Vector3>();
   faceAssist = 1;
   peak = new Map<string, number>();
@@ -78,7 +79,7 @@ export class Rig {
     cleanWrists(gltf.animations, WristTwist.hands(this.model), (n) => !isLoco(n) && !isVideoClip(n));
     if (skinned[0]) this.twist = WristTwist.attach(skinned[0]);
     this.root.add(this.model);
-    this.model.traverse((o) => { if (!this.hand && /RightHand$/.test(o.name)) this.hand = o; });
+    this.model.traverse((o) => { if (!this.hand && /RightHand$/.test(o.name)) this.hand = o; if (!this.leftHand && /LeftHand$/.test(o.name)) this.leftHand = o; });
     if (!this.hand) throw new Error("osso RightHand não encontrado");
     this.captureGrip();
     applyReadyPose(this.model, gltf.animations, [...LOCO, ...LOCO_CLIPS], this.gripAxes().q);
@@ -186,13 +187,16 @@ export class Rig {
   }
 
   /** posição do centro da raquete (relativa à raiz) na pose do clipe no tempo t */
-  measure(name: string, t: number): THREE.Vector3 {
+  measure(name: string, t: number): THREE.Vector3 { return this.measureObj(name, t, this.head); }
+
+  /** posição de um osso/objeto (relativa à raiz) na pose do clipe no tempo t */
+  measureObj(name: string, t: number, obj: THREE.Object3D): THREE.Vector3 {
     const saved = [...this.actions].map(([, a]) => [a, a.getEffectiveWeight(), a.time] as const);
     for (const [, a] of this.actions) a.setEffectiveWeight(0);
     const a = this.actions.get(name)!; a.setEffectiveWeight(1); a.time = Math.min(t, (this.durations.get(name) ?? 1) - 1e-3);
     this.mixer.update(0); this.root.updateMatrixWorld(true); this.fixRacket(this.faceAssist);
     this.root.updateMatrixWorld(true);
-    const v = new THREE.Vector3(); this.head.getWorldPosition(v);
+    const v = new THREE.Vector3(); obj.getWorldPosition(v);
     const r = new THREE.Vector3(); this.root.getWorldPosition(r);
     for (const [x, w, tm] of saved) { x.setEffectiveWeight(w); x.time = tm; }
     return v.sub(r);

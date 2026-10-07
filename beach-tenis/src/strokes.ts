@@ -18,7 +18,7 @@ export const STROKES: StrokeInfo[] = [
   { key: "veronica", label: "Verônica", clips: ["v_veronica_1", "v_veronica_2"], overhead: true, prep: 0.7 },
   { key: "espeto", label: "Espeto", clips: ["v_espeto_1", "v_espeto_2"], overhead: true, prep: 0.7 },
   { key: "arco", label: "Arco inferior / Leque", clips: ["v_arco_1"], overhead: false, prep: 0.6 },
-  { key: "saque", label: "Saque / Serviço", clips: ["v_saque_1", "v_saque_2"], overhead: true, prep: 0.9 },
+  { key: "saque", label: "Saque / Serviço", clips: ["v_saque_1"], overhead: true, prep: 0.9 },
 ];
 export const isVideoClip = (n: string): boolean => n.startsWith("v_");
 const BY_CLIP = new Map<string, StrokeInfo>(STROKES.flatMap((s) => s.clips.map((c) => [c, s] as [string, StrokeInfo])));

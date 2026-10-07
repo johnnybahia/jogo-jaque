@@ -20,6 +20,7 @@ def build(seg, pick, name):
     Q, D, yaw0, delta, dbg = solve(sub, s_px[c0:c1], ex)
     hl = np.einsum('ji,tj->ti', RREST[S['Hips']], delta) / 0.01
     return dict(name=name, D=D, delta=delta, dbg=dbg, win=(a + c0, a + c1), Q=Q, hips_loc=hl, contact=int(p - c0), fps=FPS, frames=int(c1 - c0), src=f'{LABELS[seg]} t={(a+p)/FPS:.2f}s', yaw0=float(np.degrees(yaw0)))
+CONTACT_FIX = {'v_saque_1': 39}   # saque: o pico de velocidade do punho (0,9 s) é a queda da raquete atrás das costas; o contato é no ponto mais alto (1,3 s)
 if __name__ == '__main__':
     plan = json.loads(sys.argv[1]) if len(sys.argv) > 1 else [[1, 0, 'v_fh_est_1']]
     out = {}; meta = {}
@@ -28,5 +29,6 @@ if __name__ == '__main__':
         if r is None: print('sem golpe', seg, pick); continue
         out[name + '_Q'] = r['Q']; out[name + '_loc'] = r['hips_loc']
         meta[name] = {k: r[k] for k in ('contact', 'fps', 'frames', 'src', 'yaw0')}
+        if name in CONTACT_FIX: meta[name]['contact'] = CONTACT_FIX[name]
         print(name.ljust(18), r['src'].ljust(34), 'quadros', r['frames'], 'contato', r['contact'], 'yaw0 %.0f°' % r['yaw0'])
     np.savez_compressed('clips.npz', **out); json.dump(meta, open('clips_meta.json', 'w'), indent=1)
