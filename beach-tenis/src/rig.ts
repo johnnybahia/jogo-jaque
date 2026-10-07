@@ -7,6 +7,9 @@ import { Loco, LOCO_CLIPS } from "./loco";
 
 export interface ClipMeta { name: string; kind: string; contact_time?: number; frames: number; duration?: number; speed_x_m_s?: number; speed_z_m_s?: number; }
 export const LOCO = ["idle", "run_f", "run_b", "run_l", "run_r"] as const;
+// tempo (s) do começo do golpe até o contato: o golpe de mocap começa PREP antes do instante de contato (o resto da preparação é pulado)
+export const PREP: Record<string, number> = { ground: 0.55, volley: 0.4, smash: 0.7, serve: 0.9 };
+export const prepOf = (clip: string): number => /smash/.test(clip) ? PREP.smash : /volley/.test(clip) ? PREP.volley : /serve/.test(clip) ? PREP.serve : PREP.ground;
 export const SWINGS = ["forehand_1", "forehand_2", "backhand_1", "backhand_2", "serve_1", "serve_2", "smash_1", "smash_2", "fvolley_1", "fvolley_2", "bvolley_1", "bvolley_2"];
 
 // Pegada da raquete. Referencial da mão (medido nos ossos, pose de repouso): F = dedos, A = lado do polegar, N = palma.
@@ -199,8 +202,8 @@ export class Rig {
 
   ct(name: string, offsetFrames: number): number { return (this.peak.get(name) ?? this.meta[name]?.contact_time ?? 1) + offsetFrames / 30; }
 
-  /** instante do clipe em que o swing começa (pula a espera parada do mocap): preparação ≤ 0,9 s */
-  startT(name: string, offsetFrames: number): number { return Math.max(0, this.ct(name, offsetFrames) - 0.9); }
+  /** instante do clipe em que o swing começa (pula a espera parada do mocap): preparação = PREP do tipo de golpe */
+  startT(name: string, offsetFrames: number): number { return Math.max(0, this.ct(name, offsetFrames) - prepOf(name)); }
 
   calibrate(offsetFrames: number): void {
     const p = this.root.position.clone(), q = this.root.quaternion.clone(); this.root.position.set(0, 0, 0); this.root.quaternion.identity();

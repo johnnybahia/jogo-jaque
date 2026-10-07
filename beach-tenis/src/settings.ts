@@ -1,21 +1,24 @@
 export interface Settings {
-  auto: boolean; autoServe: boolean; footprints: boolean; footLife: number; assist: number; hitRadius: number; ballSpeed: number; aimSpread: number;
+  auto: boolean; autoServe: boolean; footprints: boolean; footLife: number; assist: number; hitRadius: number; ballSpeed: number; aimSpread: number; timing: number;
   contactOffset: number; ballVisual: number; eSand: number; eWall: number; playerScale: number; timeScale: number;
   faceAssist: number; rkX: number; rkY: number; rkZ: number; rkRX: number; rkRY: number; rkRZ: number;
 }
 export const DEFAULTS: Settings = {
-  auto: true, autoServe: true, footprints: true, footLife: 25, assist: 0.85, hitRadius: 0.6, ballSpeed: 13, aimSpread: 1.5,
-  contactOffset: 0, ballVisual: 3.5, eSand: 0.88, eWall: 0.8, playerScale: 1.75, timeScale: 1,
+  auto: false, autoServe: true, footprints: true, footLife: 25, assist: 0.55, hitRadius: 0.32, ballSpeed: 12.5, aimSpread: 1.2, timing: 1,
+  contactOffset: 0, ballVisual: 3.5, eSand: 0.88, eWall: 0.62, playerScale: 1.75, timeScale: 1,
   faceAssist: 1, rkX: 0, rkY: 0, rkZ: 0, rkRX: 0, rkRY: 0, rkRZ: 0,
 };
-const KEY = "bt.settings.v2";
+const KEY = "bt.settings.v3";
 export const S: Settings = { ...DEFAULTS };
 export function loadSettings(): void {
   try {
     const r = localStorage.getItem(KEY); if (r) { Object.assign(S, JSON.parse(r)); return; }
-    // v1: a raquete era posicionada à mão (sem pegada calculada) e esses valores não servem mais; o resto vale
-    const o = localStorage.getItem("bt.settings.v1");
-    if (o) { const v = JSON.parse(o); for (const k of ["rkX", "rkY", "rkZ", "rkRX", "rkRY", "rkRZ"]) delete v[k]; Object.assign(S, v); }
+    // v2: a rebatida era automática e raio/assistência/velocidade/dispersão/quique na parede tinham outro significado: esses valores
+    // não servem mais, valem os padrões novos; o resto migra. v1: além disso, a raquete era posicionada à mão (sem pegada calculada)
+    const NEW_MEANING = ["auto", "assist", "hitRadius", "ballSpeed", "aimSpread", "eWall"];
+    const o2 = localStorage.getItem("bt.settings.v2"), o1 = localStorage.getItem("bt.settings.v1");
+    const old = o2 ?? o1;
+    if (old) { const v = JSON.parse(old); for (const k of NEW_MEANING) delete v[k]; if (!o2) for (const k of ["rkX", "rkY", "rkZ", "rkRX", "rkRY", "rkRZ"]) delete v[k]; Object.assign(S, v); }
   } catch { /* sem storage */ }
 }
 export function saveSettings(): void { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* ignora */ } }

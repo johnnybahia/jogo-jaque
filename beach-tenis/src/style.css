@@ -12,6 +12,10 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 #btns{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));display:flex;gap:12px;align-items:flex-end}
 #btns button{border:0;border-radius:50%;font-weight:800;color:#fff;box-shadow:0 3px 10px #0008}
 #swingBtn{width:104px;height:104px;background:#ff6a00;font-size:18px}
+#swingWrap{position:relative;width:104px;height:104px}
+#timeRing{position:absolute;left:0;top:0;width:104px;height:104px;box-sizing:border-box;border-radius:50%;border:5px solid #fff;pointer-events:none;opacity:0;transition:opacity .15s}
+#timeRing[data-st=near]{border-color:#ffd23a}#timeRing[data-st=now]{border-color:#35e06a;border-width:8px}#timeRing[data-st=late]{border-color:#ff9a2e}#timeRing[data-st=bad]{border-color:#ff4a4a}
+#swingBtn.now{box-shadow:0 0 0 7px #35e06a99,0 3px 10px #0008}
 #serveBtn{width:72px;height:72px;background:#1b6fb4;font-size:13px}
 #panel{position:fixed;top:0;right:0;bottom:0;width:min(330px,88vw);background:#0b1620ee;overflow:auto;padding:14px 14px 40px;touch-action:pan-y;font-size:13px}
 #panel h3{margin:14px 0 6px;font-size:13px;color:#ffb36b;text-transform:uppercase;letter-spacing:.05em}
