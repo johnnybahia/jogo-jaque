@@ -6,6 +6,7 @@ import { buildEnvironment, blobTexture, COURT } from "./scene";
 import { S, loadRecord, saveRecord } from "./settings";
 import { Footprints } from "./footprints";
 import { CueMarker } from "./cuemark";
+import { STROKES, strokeOf } from "./strokes";
 import { Ball, BALL_R, Sample, Tun, heightAtWall, newBall, predict, stepBall } from "./physics";
 
 const CAM_PITCH = 0.285;   // inclinação padrão da câmera (rad): 2,5 m de altura a 4,8 m atrás
@@ -14,6 +15,9 @@ interface Swing { startT: number; endT: number; clip: string; s: number; contact
 /** próxima rebatida: onde a jogadora deve estar, quando a bola chega e quando apertar GOLPE (tempos no relógio do jogo) */
 interface Cue { arrival: number; press: number; prep: number; x1: number; z1: number; smp: Sample; clip: string; kind: string; shift: number; cost: number; }
 export interface CueView { ttp: number; reach: boolean; win: number; }
+/** visualizador de golpes (galeria): o que a tela mostra */
+export interface ViewState { clip: string; label: string; n: number; total: number; speed: number; paused: boolean; }
+interface Viewer { clip: string; speed: number; paused: boolean; wait: number; prev: { yaw: number; pitch: number; dist: number }; }
 // tempo (s) do começo do golpe ao contato vem de PREP (rig.ts); a bola chega PREP depois do aperto ideal. O clipe é acelerado/retardado
 // (S_MIN..S_MAX) para o contato cair na bola quando o aperto vem um pouco cedo/tarde; fora disso o golpe passa em branco
 const S_MIN = 0.62, S_MAX = 1.9, DY_MAX = 0.2, NEED_MAX = 2.7, NEED_OK = 1.7, NEED_RELAX = 2.3;   // NEED: corrida (m/s) exigida para chegar ao ponto a tempo
@@ -40,6 +44,8 @@ export class Game {
   onToast: (m: string) => void = () => {};
   onHud: () => void = () => {};
   onCue: (v: CueView | null) => void = () => {};
+  onView: (v: ViewState | null) => void = () => {};
+  viewer: Viewer | null = null;
   info = "";
 
   constructor(canvas: HTMLCanvasElement) {
@@ -76,7 +82,7 @@ export class Game {
     this.rig.faceAssist = S.faceAssist; this.tun.eSand = S.eSand; this.tun.eWall = S.eWall;
     this.rig.applyRacketTransform(S, S.playerScale);
     if (recalc) this.rig.calibrate(S.contactOffset);
-    this.ballMesh.scale.setScalar(S.ballVisual); this.cam.dist = S.camDist;
+    this.ballMesh.scale.setScalar(S.ballVisual); if (!this.viewer) this.cam.dist = S.camDist;
   }
 
   resize(): void {
@@ -91,6 +97,7 @@ export class Game {
 
   serve(): void {
     if (!this.rig.mixer) return;
+    this.viewClose();
     if (this.swing && !this.swing.contacted) this.swing = null;
     const p = this.rig.root.position;
     Object.assign(this.ball, newBall(), { x: p.x - 0.3, y: 1.3, z: p.z + 1.0 });
@@ -122,18 +129,48 @@ export class Game {
     return [{ clip: this.pick(n === 1 ? "v_fh_din_1" : "v_fh_est_1", `forehand_${n}`), kind: "ground" }, { clip: this.pick(n === 1 ? "v_bh_din_1" : "v_bh_est_1", `backhand_${n}`), kind: "ground" }];
   }
 
-  /** prévia de um golpe (galeria dos Ajustes): toca o clipe inteiro no lugar, sem bola */
-  previewStroke(clip: string): boolean {
-    if (!this.rig.mixer || this.swing || this.state === "rally") return false;
-    const act = this.rig.actions.get(clip); if (!act) return false;
-    const p = this.rig.root.position, dur = this.rig.durations.get(clip) ?? 2, ct = Math.min(this.rig.ct(clip, S.contactOffset), dur - 0.05);
-    this.swing = { clip, s: 1, contactT: ct, t: 0, startT: 0, endT: dur - 0.02, duration: dur, x0: p.x, z0: p.z, x1: p.x, z1: p.z, contacted: false, kind: "preview", err: 0, whiff: true, preview: true };
-    this.swingAct = act; this.vx = 0; this.vz = 0; this.cue = null; this.info = `prévia: ${clip}`; this.onHud(); return true;
+  // ---------- visualizador de golpes (galeria) ----------
+  /** clipes do vídeo disponíveis, na ordem da galeria */
+  viewList(): string[] { return STROKES.flatMap((s) => s.clips).filter((c) => this.rig.actions.has(c)); }
+
+  private viewState(): ViewState | null {
+    const v = this.viewer; if (!v) return null; const l = this.viewList(), st = strokeOf(v.clip);
+    return { clip: v.clip, label: st?.label ?? v.clip, n: l.indexOf(v.clip) + 1, total: l.length, speed: v.speed, paused: v.paused };
+  }
+
+  /** abre a galeria no golpe clip: interrompe o rali (a bola some), põe a câmera de frente e repete o golpe do vídeo em ciclo */
+  viewStroke(clip: string): boolean {
+    if (!this.rig.mixer || !this.rig.actions.has(clip)) return false;
+    if (!this.viewer) {
+      this.viewer = { clip, speed: 1, paused: false, wait: 0, prev: { ...this.cam } };
+      this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false;
+      const p = this.rig.root.position; p.z = Math.min(p.z, 0);                          // a câmera de frente fica dentro da quadra (a parede é em +z)
+      this.cam.yaw = 2.5; this.cam.pitch = 0.2; this.cam.dist = Math.min(this.cam.dist, 3.6);
+    }
+    this.viewer.clip = clip; this.swing = null; this.startView(); this.setCamera(true); this.onHud(); this.onView(this.viewState()); return true;
+  }
+
+  private startView(): void {
+    const v = this.viewer; if (!v) return; const act = this.rig.actions.get(v.clip); if (!act) return;
+    const p = this.rig.root.position, dur = this.rig.durations.get(v.clip) ?? 2, ct = Math.min(this.rig.ct(v.clip, S.contactOffset), dur - 0.05);
+    this.swing = { clip: v.clip, s: v.paused ? 0 : v.speed, contactT: ct, t: 0, startT: 0, endT: dur - 0.02, duration: dur, x0: p.x, z0: p.z, x1: p.x, z1: p.z, contacted: false, kind: "preview", err: 0, whiff: true, preview: true };
+    this.swingAct = act; this.vx = 0; this.vz = 0; this.cue = null; this.info = ""; v.wait = 0;
+  }
+
+  viewStep(d: number): void { const l = this.viewList(); if (this.viewer && l.length) this.viewStroke(l[(l.indexOf(this.viewer.clip) + d + l.length) % l.length]); }
+  viewPause(on?: boolean): void { const v = this.viewer; if (!v) return; v.paused = on ?? !v.paused; if (this.swing?.preview) this.swing.s = v.paused ? 0 : v.speed; this.onView(this.viewState()); }
+  viewSpeed(x: number): void { const v = this.viewer; if (!v) return; v.speed = x; if (this.swing?.preview && !v.paused) this.swing.s = x; this.onView(this.viewState()); }
+  /** arrasta o tempo do golpe (0..1) */
+  viewSeek(f: number): void { if (!this.viewer) return; if (!this.swing) this.startView(); if (this.swing?.preview) this.swing.t = Math.min(0.995, Math.max(0, f)) * this.swing.endT; }
+  viewT(): number { const sw = this.swing; return sw?.preview ? Math.min(1, sw.t / sw.endT) : 0; }
+  viewClose(): void {
+    const v = this.viewer; if (!v) return; this.viewer = null; if (this.swing?.preview) this.swing = null;
+    Object.assign(this.cam, v.prev); this.setCamera(true); this.onView(null); this.onHud();
   }
 
   // ---------- câmera ----------
   orbit(dyaw: number, dpitch: number): void { this.cam.yaw += dyaw; this.cam.pitch = THREE.MathUtils.clamp(this.cam.pitch + dpitch, 0.06, 1.35); }
-  zoom(f: number): void { this.cam.dist = S.camDist = THREE.MathUtils.clamp(this.cam.dist * f, 1.8, 14); }
+  zoom(f: number): void { this.cam.dist = THREE.MathUtils.clamp(this.cam.dist * f, 1.8, 14); if (!this.viewer) S.camDist = this.cam.dist; }   // na galeria o zoom é temporário
   recenter(): void { this.cam.yaw = 0; this.cam.pitch = CAM_PITCH; }
 
   /** tempo (s) que a jogadora ainda fica parada no fim do golpe em andamento (0 sem golpe): não dá para correr nesse intervalo */
@@ -273,7 +310,7 @@ export class Game {
     dt = Math.min(dt, 0.05); this.time += dt; const root = this.rig.root; const p = root.position;
     if (this.state === "dead") { this.deadTimer -= dt; if (this.deadTimer <= 0) { this.state = "wait"; if (S.autoServe) this.serve(); } }
 
-    if (!this.swing) {
+    if (!this.swing && !this.viewer) {
       const cyw = Math.cos(this.cam.yaw), syw = Math.sin(this.cam.yaw);   // direcional relativo à câmera (com a câmera atrás da jogadora: frente = parede)
       const mx = -this.input.right * cyw + this.input.fwd * syw, mz = this.input.fwd * cyw + this.input.right * syw;
       const tx = mx * MAX_SIDE, tz = mz * (mz >= 0 ? MAX_SPEED : MAX_BACK); const k = Math.min(1, 10 * dt);
@@ -298,8 +335,8 @@ export class Game {
     if (sw) {
       const pr = Math.max(0, Math.min(1, (sw.t - sw.startT) / (sw.contactT - sw.startT))); const e = pr * pr * (3 - 2 * pr);
       p.x = sw.x0 + (sw.x1 - sw.x0) * e; p.z = sw.z0 + (sw.z1 - sw.z0) * e;
-      if (sw.t >= sw.endT) { this.swing = null; }
-    }
+      if (sw.t >= sw.endT) { this.swing = null; if (this.viewer) this.viewer.wait = 0.7; }
+    } else if (this.viewer) { this.viewer.wait -= dt; if (this.viewer.wait <= 0) this.startView(); }   // galeria: repete o golpe depois de uma pausa
     this.animate(dt);
     this.rig.root.updateMatrixWorld(true);
     this.foot.enabled = S.footprints; this.foot.life = S.footLife; this.foot.update(dt, this.swing ? 0 : Math.hypot(this.vx, this.vz));
@@ -350,8 +387,8 @@ export class Game {
   private setCamera(snap: boolean, dt = 0.016): void {
     const p = this.rig.root.position, { yaw, pitch, dist } = this.cam; const k = snap ? 1 : Math.min(1, 8 * dt);
     const sy = Math.sin(yaw), cy = Math.cos(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
-    const lead = 4 * (1 - Math.min(1, pitch / 1.2));                                   // olha à frente da jogadora; de cima, olha para ela
-    const bx = p.x * 0.6;                                                              // segue 60% do deslocamento lateral
+    const lead = this.viewer ? 0 : 4 * (1 - Math.min(1, pitch / 1.2));                 // olha à frente da jogadora; de cima, olha para ela
+    const bx = p.x * (this.viewer ? 1 : 0.6);                                          // segue 60% do deslocamento lateral (na galeria, centrada nela)
     const tp = new THREE.Vector3(bx - sy * cp * dist, 1.1 + sp * dist, p.z - cy * cp * dist);
     this.camera.position.lerp(tp, k);
     this.camera.lookAt(bx + sy * lead, 1.1, p.z + cy * lead);
