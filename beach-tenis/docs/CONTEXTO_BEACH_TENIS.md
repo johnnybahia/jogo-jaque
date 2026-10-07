@@ -64,6 +64,13 @@ Conferido visualmente (tiras `strip_forehand.png`, `strip_serve_smash.png`): pre
 - Os 12 clipes cobrem 1 golpe cada, sem emendar com idle (usar crossfade ~0,15–0,25 s). Locomoção/idle: usar os FBX Mixamo do repo (mesmo rig, mesmo `mixamorig:`).
 - Qualidade do mocap varia; há ~900 candidatos em `cands.json` para trocar clipes ruins.
 
+## Mão, pulso e raquete (correção em runtime)
+- **Desvio do retarget:** nos 12 golpes a mão vem com um desvio fixo de ~110–125° no eixo X da mão (diferença de eixo BVH × osso Mixamo): mão dobrada >100° em quase todo quadro, torção medida até 400° e a pele do pulso "virava laço". `wrist.ts` estima o desvio de cada mão a partir dos próprios clipes (rotação média), tira ele (`q · offset⁻¹`) e filtra/limita torção (±110°) e flexão (80°). Se o GLB for reexportado com o retarget corrigido (desvio < 25°) a correção não faz nada.
+- **Ossos de torção:** `WristTwist` cria 2 ossos no antebraço (BTTwist*1/2) e reparte o peso do antebraço por posição; eles giram 40% e 80% da torção da mão. Sem eles a pele pinça já em ~90°.
+- **Pegada:** `rig.ts` mede F (dedos), A (lado do polegar) e N (palma) nos ossos da mão; a raquete atravessa a palma na diagonal (cabo→cabeça = A girado 55° para F, face = N), e os dedos da mão direita são fechados em volta do cabo. `rk*` nos Ajustes agora é ajuste fino sobre isso (configurações v2; os valores v1 de raquete são descartados, o resto migra).
+- **Posição de espera:** `ready.ts` troca o braço direito dos clipes de parada/corrida (pose de conjuração do pacote Magic: mão na altura da cabeça) por uma pose fixa de espera (braço pendente, cotovelo dobrado, raquete à frente com a cabeça para cima).
+- **Contato dos golpes por cima:** saque/smash usam o ponto mais alto entre os quadros rápidos (o pico de velocidade da cabeça vem na descida).
+
 ## Próximos passos sugeridos (ordem)
 1. **Cena base**: quadra 16×8 m (areia), rede a ~1,70 m (confirmar medidas oficiais), câmera, 1 jogadora (esta GLB) + locomoção/idle do pacote Mixamo (converter com o mesmo script `bpy`, copiando o padrão do `convert_characters.py` do Kage).
 2. **Física da bola** com passo fixo (voo com arrasto+Magnus a partir do OpenHawk; quique **amortecido na areia**, restituição baixa — calibrar).
