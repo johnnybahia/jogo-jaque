@@ -1,0 +1,38 @@
+{
+ "walk_f": {
+  "name": "walk_f",
+  "frames": 35,
+  "fps": 30,
+  "duration": 1.1333333333333333,
+  "source": "Standing Walk Forward.fbx",
+  "speed_x_m_s": -0.0,
+  "speed_z_m_s": 0.9
+ },
+ "walk_b": {
+  "name": "walk_b",
+  "frames": 37,
+  "fps": 30,
+  "duration": 1.2,
+  "source": "Standing Walk Back.fbx",
+  "speed_x_m_s": -0.0,
+  "speed_z_m_s": -0.654
+ },
+ "walk_l": {
+  "name": "walk_l",
+  "frames": 36,
+  "fps": 30,
+  "duration": 1.1666666666666667,
+  "source": "Standing Walk Left.fbx",
+  "speed_x_m_s": 0.718,
+  "speed_z_m_s": -0.0
+ },
+ "walk_r": {
+  "name": "walk_r",
+  "frames": 37,
+  "fps": 30,
+  "duration": 1.2,
+  "source": "Standing Walk Right.fbx",
+  "speed_x_m_s": -0.743,
+  "speed_z_m_s": 0.0
+ }
+}
