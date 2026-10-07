@@ -2,6 +2,7 @@
 import json, numpy as np
 from scipy.spatial.transform import Rotation as Rot
 from scipy.ndimage import gaussian_filter1d, median_filter
+from scipy.linalg import solve_banded
 
 REST = json.load(open('rest.json'))
 NAMES = list(REST.keys())
@@ -54,6 +55,26 @@ def to_A(d, yaw):
     c, s = np.cos(yaw), np.sin(yaw); R = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
     return A @ R.T
 
+def smooth_twist(obs, r, lam=8.0, mu=0.03, lim=2.1):
+    """torção do braço contínua: segue o plano do cotovelo observado onde ele é confiável (r) e interpola/segura nos trechos incertos
+    (braço quase esticado), sem saltos de ±180°; limitada a ±lim rad"""
+    T = len(obs); w = np.clip(r, 0, 1); o = np.zeros(T); ok = np.nonzero(w > 0.02)[0]
+    if len(ok): o[ok] = np.unwrap(obs[ok])
+    ab = np.zeros((3, T)); main = w + mu + 2 * lam; main[0] -= lam; main[-1] -= lam
+    ab[1] = main; ab[0, 1:] = -lam; ab[2, :-1] = -lam
+    a = solve_banded((1, 1), ab, w * o)
+    return lim * np.tanh(a / lim)
+
+def hampel_quat(Q, win=5, tol=np.radians(14)):
+    """tira picos isolados de 1–2 quadros (soluções trocadas) das rotações: troca pelo valor mediano da janela se a diferença passar de tol"""
+    T, B, _ = Q.shape; out = Q.copy(); h = win // 2
+    for i in range(B):
+        q = Q[:, i]
+        med = median_filter(q, size=(win, 1), mode='nearest'); med /= np.maximum(np.linalg.norm(med, axis=1, keepdims=True), 1e-9)
+        dev = 2 * np.arccos(np.clip(np.abs(np.einsum('ti,ti->t', q, med)), 0, 1))
+        bad = dev > tol; out[bad, i] = med[bad]
+    return out
+
 def smooth_dirs(dirs, sig):
     return {k: unit(gaussian_filter1d(v, sig, axis=0, mode='nearest')) for k, v in dirs.items()}
 
@@ -64,6 +85,12 @@ L2 = {sd: float(np.linalg.norm(HEAD[S[sd + 'Foot']] - HEAD[S[sd + 'Leg']])) for 
 LT_I, LS_I = 0.245, 0.246                                       # comprimentos de coxa/canela do levantamento (H)
 KAPPA_H = 0.925                                                 # m por H para alturas vindas da imagem
 ANKLE_H = 0.054
+# abertura das pernas (a saia abria demais com o pé muito afastado do quadril): o ângulo da perna (quadril→tornozelo) em relação à vertical é
+# comprimido acima de A0 (lateral e frente/trás separados) e o quadril sobe CP da diferença para a perna não dobrar mais por isso
+LEG_LAT_A0, LEG_LAT_K = np.radians(20), 0.40
+LEG_FB_A0, LEG_FB_K = np.radians(30), 0.45
+LEG_CP = 0.7
+LEG_POLE_W, LEG_TOE_MAX = 0.65, 12      # joelho segue o rumo do pé (peso máximo) e abertura máxima do pé em relação à pelve (°)
 
 def planted(extra, s, still_lo=0.30, still_hi=0.70, gap_ok=0.30, gap_soft=0.15):
     """pé plantado = parado na imagem (câmera fixa) e não muito acima do chão de referência"""
@@ -83,6 +110,7 @@ def two_bone(Hj, T, l1, l2, pole):
     knee = Hj + u * along + n * h; T2 = Hj + u * dist
     return unit(knee - Hj), unit(T2 - knee), T2
 
+DBG = {}   # intermediários do último solve (diagnóstico)
 def solve(dirs, s_px, extra, fps=30, sig=1.2, yaw0=None):
     T = len(next(iter(dirs.values())))
     dirs = smooth_dirs(dirs, sig)
@@ -110,11 +138,13 @@ def solve(dirs, s_px, extra, fps=30, sig=1.2, yaw0=None):
         du0 = unit(HEAD[S[side + 'ForeArm']] - HEAD[S[side + 'Arm']]); df0 = unit(HEAD[S[side + 'Hand']] - HEAD[S[side + 'ForeArm']])
         fwd = np.array([0, -1.0, 0]); h0 = unit(np.cross(du0, fwd))
         pre = rot_arc(du0, d[u]); n_obs = unit(np.cross(d[u], d[f]))
-        flex = np.arccos(np.clip(np.einsum('ti,ti->t', d[u], d[f]), -1, 1)); w = np.clip((flex - np.radians(12)) / np.radians(18), 0, 1)[:, None]
-        n_def = np.einsum('tij,j->ti', pre, h0); n_t = unit(w * n_obs + (1 - w) * n_def)
-        hp = n_def - np.einsum('ti,ti->t', n_def, d[u])[:, None] * d[u]; npj = n_t - np.einsum('ti,ti->t', n_t, d[u])[:, None] * d[u]
-        ang = np.arctan2(np.einsum('ti,ti->t', d[u], np.cross(hp, npj)), np.einsum('ti,ti->t', hp, npj))
+        flex = np.arccos(np.clip(np.einsum('ti,ti->t', d[u], d[f]), -1, 1)); w = np.clip((flex - np.radians(14)) / np.radians(24), 0, 1)[:, None]
+        n_def = np.einsum('tij,j->ti', pre, h0)
+        hp = n_def - np.einsum('ti,ti->t', n_def, d[u])[:, None] * d[u]; npj = n_obs - np.einsum('ti,ti->t', n_obs, d[u])[:, None] * d[u]
+        ang_obs = np.arctan2(np.einsum('ti,ti->t', d[u], np.cross(hp, npj)), np.einsum('ti,ti->t', hp, npj))
+        ang = smooth_twist(ang_obs, w[:, 0])
         Du = mm(rot_axis(d[u], ang), pre); Df = mm(rot_arc(np.einsum('tij,j->ti', Du, df0), d[f]), Du)
+        DBG[side + 'Arm'] = dict(flex=np.degrees(flex), w=w[:, 0], ang=np.degrees(ang), du=d[u], df=d[f])
         driven[side + 'Arm'] = Du; driven[side + 'ForeArm'] = Df; driven[side + 'Hand'] = Df
     # --- pernas: vetor quadril->tornozelo do levantamento (escala da Jaqueline), pés plantados, altura e deslocamento da pelve, IK ---
     wpl, ref = planted(extra, s_px)
@@ -125,6 +155,22 @@ def solve(dirs, s_px, extra, fps=30, sig=1.2, yaw0=None):
         kap = (L1[sd] + L2[sd]) / (LT_I + LS_I)
         vl = d[t_] * LT_I + d[s_] * LS_I; vleg[sd] = vl * kap
         kn = d[t_] * LT_I; u = unit(vl); polev[sd] = kn - np.einsum('ti,ti->t', kn, u)[:, None] * u
+    # abertura das pernas: comprime o ângulo quadril→tornozelo (lateral e frente/trás) em relação à vertical, na altura de quadril da imagem
+    yl0 = extra['ylow']; ws0 = wpl.sum(1)
+    yav0 = np.where(ws0 > 0.05, (wpl * yl0).sum(1) / np.maximum(ws0, 1e-6), ref); hz0 = KAPPA_H * (yav0 - extra['pelvis_y']) / s_px
+    latH = np.einsum('tij,j->ti', Dh, np.array([1.0, 0, 0])); latH[:, 2] = 0; latH = unit(latH)
+    fwdH = np.einsum('tij,j->ti', Dh, np.array([0, -1.0, 0])); fwdH[:, 2] = 0; fwdH = unit(fwdH)
+    need_hz = np.full(T, -1.0)
+    for wi, (sd, *_ ) in enumerate(sides):
+        vl = vleg[sd]; sg = 1.0 if sd == 'Left' else -1.0
+        lo = sg * np.einsum('ti,ti->t', vl, latH); fb = np.einsum('ti,ti->t', vl, fwdH)           # lo > 0: perna aberta para fora; fb > 0: para a frente
+        pl = wpl[:, wi]; dr = np.where(pl > 0.5, np.maximum(hz0 - ANKLE_H, 0.05), np.maximum(-vl[:, 2], 0.05))
+        al = np.arctan2(np.maximum(lo, 0), dr); al2 = np.where(al > LEG_LAT_A0, LEG_LAT_A0 + (al - LEG_LAT_A0) * LEG_LAT_K, al)
+        af = np.arctan2(np.abs(fb), dr); af2 = np.where(af > LEG_FB_A0, LEG_FB_A0 + (af - LEG_FB_A0) * LEG_FB_K, af)
+        lo2 = np.where(lo > 0, dr * np.tan(al2), lo); fb2 = np.sign(fb) * dr * np.tan(af2)
+        chord = np.sqrt(dr ** 2 + np.maximum(lo, 0) ** 2 + fb ** 2); dr_t = np.sqrt(np.maximum(chord ** 2 - np.maximum(lo2, 0) ** 2 - fb2 ** 2, 0))   # perna com o mesmo comprimento de antes
+        need_hz = np.where(pl > 0.5, np.maximum(need_hz, ANKLE_H + dr_t), need_hz)
+        vleg[sd] = vl + latH * (sg * (lo2 - lo))[:, None] + fwdH * (fb2 - fb)[:, None]
     # deslocamento horizontal da pelve a partir dos pés plantados (pés parados no mundo)
     rel = {sd: (off[sd] + vleg[sd])[:, :2] for sd, *_ in sides}
     dp = np.zeros((T, 2))
@@ -138,6 +184,7 @@ def solve(dirs, s_px, extra, fps=30, sig=1.2, yaw0=None):
     yl = extra['ylow']; wsum = wpl.sum(1)
     yavg = np.where(wsum > 0.05, (wpl * yl).sum(1) / np.maximum(wsum, 1e-6), ref)
     hz = KAPPA_H * (yavg - extra['pelvis_y']) / s_px
+    hz = np.where(need_hz > 0, np.maximum(hz, hz + LEG_CP * (need_hz - hz)), hz)             # abertura menor: o quadril sobe um pouco para a perna não dobrar mais
     for wi, (sd, *_ ) in enumerate(sides):        # alcance: o pé plantado precisa alcançar o chão com a perna da Jaqueline
         dxy = np.linalg.norm((vleg[sd])[:, :2], axis=1); lim = ANKLE_H + np.sqrt(np.maximum(((L1[sd] + L2[sd]) * 0.995) ** 2 - dxy ** 2, 0))
         hz = np.where(wpl[:, wi] > 0.5, np.minimum(hz, lim), hz)
@@ -146,13 +193,26 @@ def solve(dirs, s_px, extra, fps=30, sig=1.2, yaw0=None):
     for wi, (sd, t_, s_, f_) in enumerate(sides):
         Hj = c + off[sd]; Tg = Hj + vleg[sd]
         Tg[:, 2] = wpl[:, wi] * ANKLE_H + (1 - wpl[:, wi]) * Tg[:, 2]
+        Tg[:, 2] = np.maximum(Tg[:, 2], ANKLE_H)                                 # o pé nunca fica abaixo do chão
+        # joelho: aponta para onde o pé aponta (rumo do pé em relação à frente da pelve, limitado e suave), misturado ao joelho do levantamento
+        hd = d[f_].copy(); hd[:, 2] = 0; hn = np.linalg.norm(hd, axis=1); hd = np.where((hn > 0.15)[:, None], unit(hd), fwdH)
+        ph = np.unwrap(np.arctan2(hd[:, 1], hd[:, 0]) - np.arctan2(fwdH[:, 1], fwdH[:, 0])); ph = np.arctan2(np.sin(ph), np.cos(ph))
+        ph = gaussian_filter1d(np.clip(ph, -np.radians(LEG_TOE_MAX), np.radians(LEG_TOE_MAX)), 2.0, mode='nearest')
+        cs, sn = np.cos(ph), np.sin(ph); head = np.stack([cs * fwdH[:, 0] - sn * fwdH[:, 1], sn * fwdH[:, 0] + cs * fwdH[:, 1], np.zeros(T)], 1)
+        uu = unit(vleg[sd]); p2 = head - np.einsum('ti,ti->t', head, uu)[:, None] * uu; mag = np.linalg.norm(p2, axis=1)
+        wP = (LEG_POLE_W * np.clip(mag / 0.35, 0, 1))[:, None]
         fwd = np.einsum('tij,j->ti', Dh, np.array([0, -1.0, 0]))
-        pole = polev[sd] + 0.05 * np.linalg.norm(vleg[sd], axis=1, keepdims=True) * (fwd - np.einsum('ti,ti->t', fwd, unit(vleg[sd]))[:, None] * unit(vleg[sd]))
+        p1 = unit(polev[sd] + 0.05 * np.linalg.norm(vleg[sd], axis=1, keepdims=True) * (fwd - np.einsum('ti,ti->t', fwd, uu)[:, None] * uu))
+        pole = unit((1 - wP) * p1 + wP * unit(p2))
         d[t_], d[s_], T2 = two_bone(Hj, Tg, L1[sd], L2[sd], pole)
         # pé plantado: achata o pé (pitch do repouso) mantendo o rumo
         df_rest = unit(HEAD[S[sd + 'ToeBase']] - HEAD[S[sd + 'Foot']]); hor = d[f_].copy(); hor[:, 2] = 0; hor = unit(hor)
         flat = unit(hor * np.hypot(df_rest[0], df_rest[1]) + np.array([0, 0, df_rest[2]]))
         w = wpl[:, wi][:, None]; d[f_] = unit(w * flat + (1 - w) * d[f_])
+        # a ponta do pé não entra no chão: sobe o pé até a ponta tocar
+        ltoe = float(np.linalg.norm(HEAD[S[sd + 'ToeBase']] - HEAD[S[sd + 'Foot']])); need = (0.005 - T2[:, 2]) / ltoe
+        dz = np.minimum(np.maximum(d[f_][:, 2], need), 0.95); hxy = d[f_].copy(); hxy[:, 2] = 0; hxy = unit(hxy)
+        d[f_] = unit(hxy * np.sqrt(1 - dz ** 2)[:, None] + np.array([0, 0, 1.0]) * dz[:, None])
     for (sd, t_, s_, f_) in sides:
         du0 = unit(HEAD[S[sd + 'Leg']] - HEAD[S[sd + 'UpLeg']]); ds0 = unit(HEAD[S[sd + 'Foot']] - HEAD[S[sd + 'Leg']]); df0 = unit(HEAD[S[sd + 'ToeBase']] - HEAD[S[sd + 'Foot']])
         pre = rot_arc(du0, d[t_]); angs = np.radians(np.arange(-90, 91, 6.0)); score = np.zeros((T, len(angs)))
@@ -172,7 +232,7 @@ def solve(dirs, s_px, extra, fps=30, sig=1.2, yaw0=None):
     for i in range(Q.shape[1]):
         for t in range(1, T):
             if np.dot(Q[t, i], Q[t - 1, i]) < 0: Q[t, i] = -Q[t, i]
-    Q = gaussian_filter1d(Q, 0.8, axis=0, mode='nearest'); Q /= np.linalg.norm(Q, axis=2, keepdims=True)
+    Q = hampel_quat(Q); Q = gaussian_filter1d(Q, 0.8, axis=0, mode='nearest'); Q /= np.linalg.norm(Q, axis=2, keepdims=True)
     # deslocamento do osso Hips (m, espaço A): centro dos quadris c + Dh (Hips - PCR) - Hips_repouso
     delta = c + np.einsum('tij,j->ti', Dh, HEAD[S['Hips']] - PCR) - HEAD[S['Hips']]
     return Q, D, yaw0, delta, dict(wpl=wpl, p=p, hz=hz, ref=ref)
