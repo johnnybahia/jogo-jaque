@@ -11,6 +11,7 @@ const SPECS: Array<[string, Spec[]]> = [
     { key: "aimSpread", label: "Dispersão da mira (m)", min: 0, max: 2.5, step: 0.1 },
     { key: "timeScale", label: "Velocidade das animações", min: 0.5, max: 1.5, step: 0.05 },
   ]],
+  ["Marcas dos pés", [{ key: "footLife", label: "Duração (s)", min: 5, max: 60, step: 1 }]],
   ["Sincronia", [{ key: "contactOffset", label: "Ajuste do contato (frames)", min: -10, max: 10, step: 1, recalc: true }]],
   ["Física", [
     { key: "eSand", label: "Quique na areia", min: 0.1, max: 0.8, step: 0.01 },
@@ -59,8 +60,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   const renderLog = () => { logEl.textContent = game.log.filter((l) => l.type === "contact" || l.type === "swing" || l.type === "dead").slice(-14).map((l) => JSON.stringify(l)).join("\n"); };
   const build = () => {
     panel.innerHTML = `<b>Beach Tênis</b> <small>v${version}</small>`;
-    const chk = (key: "auto" | "autoServe", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); }; panel.appendChild(l); };
-    chk("auto", "Golpe automático (sincronizado)"); chk("autoServe", "Saque automático");
+    const chk = (key: "auto" | "autoServe" | "footprints", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); }; panel.appendChild(l); };
+    chk("auto", "Golpe automático (sincronizado)"); chk("autoServe", "Saque automático"); chk("footprints", "Marcas dos pés na areia");
     for (const [title, specs] of SPECS) {
       const h = document.createElement("h3"); h.textContent = title; panel.appendChild(h);
       for (const sp of specs) {

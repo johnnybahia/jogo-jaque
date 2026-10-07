@@ -4,6 +4,7 @@ import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.j
 import { Rig, LOCO } from "./rig";
 import { buildEnvironment, blobTexture, COURT } from "./scene";
 import { S, loadRecord, saveRecord } from "./settings";
+import { Footprints } from "./footprints";
 import { Ball, BALL_R, Sample, Tun, heightAtWall, newBall, predict, stepBall } from "./physics";
 
 const MAX_SPEED = 3.6;
@@ -15,7 +16,7 @@ export class Game {
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(55, 1, 0.1, 150);
   renderer: THREE.WebGLRenderer;
-  rig = new Rig();
+  rig = new Rig(); foot: Footprints;
   ball: Ball = newBall();
   ballMesh: THREE.Object3D; ballShadow: THREE.Mesh; playerShadow: THREE.Mesh;
   tun: Tun = { eSand: S.eSand, eWall: S.eWall, wallZ: COURT.wallZ, wallW: COURT.wallW, wallH: COURT.wallH };
@@ -33,7 +34,7 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    buildEnvironment(this.scene, import.meta.env.BASE_URL);
+    buildEnvironment(this.scene, import.meta.env.BASE_URL); this.foot = new Footprints(this.scene);
     const bt = blobTexture();
     const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false });
     this.playerShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), bm); this.playerShadow.rotation.x = -Math.PI / 2; this.playerShadow.position.y = 0.01; this.scene.add(this.playerShadow);
@@ -54,6 +55,7 @@ export class Game {
     this.rig.root.position.set(0, 0, 0);
     this.rig.faceAssist = S.faceAssist; this.rig.applyRacketTransform(S, S.playerScale); this.rig.findPeaks();
     this.applySettings();
+    this.foot.bind(this.rig.model); this.animate(0); this.rig.root.updateMatrixWorld(true); this.foot.calibrate();
     this.setCamera(true);
   }
 
@@ -80,7 +82,7 @@ export class Game {
     const p = this.rig.root.position;
     Object.assign(this.ball, newBall(), { x: p.x - 0.3, y: 1.3, z: p.z + 1.0 });
     this.aimBall(THREE.MathUtils.clamp(p.x + (Math.random() - 0.5) * 2.4, -2.5, 2.5), 1.8 + Math.random() * 0.8, 13);
-    this.state = "rally"; this.rally = 0; this.serveTime = this.time;
+    this.state = "rally"; this.rally = 0; this.serveTime = this.time; this.foot.clear();
     this.ballMesh.visible = true; this.ballShadow.visible = true; this.emit("serve"); this.onHud();
   }
 
@@ -221,6 +223,8 @@ export class Game {
       if (sw.t >= sw.endT) { this.swing = null; }
     }
     this.animate(dt);
+    this.rig.root.updateMatrixWorld(true);
+    this.foot.enabled = S.footprints; this.foot.life = S.footLife; this.foot.update(dt, this.swing ? 0 : Math.hypot(this.vx, this.vz));
     this.syncVisuals(dt);
   }
 
