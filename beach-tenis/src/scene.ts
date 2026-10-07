@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 export const COURT = { wallZ: 11, wallW: 6, wallH: 3 };
+export const NET_H = 1.7;   // altura da rede de beach tênis (m): o risco da parede; a bola precisa bater na parede acima dele
 
 function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
   const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
@@ -32,8 +33,12 @@ export function buildEnvironment(scene: THREE.Scene, base: string): void {
   const faceTex = canvasTex(512, 256, (c) => {
     c.fillStyle = "#f4f1ea"; c.fillRect(0, 0, 512, 256);
     c.strokeStyle = "#ff6a00"; c.lineWidth = 10; c.strokeRect(5, 5, 502, 246);
-    c.strokeStyle = "#1b6fb4"; c.lineWidth = 5; c.beginPath(); c.moveTo(5, 256 - 0.9 / 3 * 256); c.lineTo(507, 256 - 0.9 / 3 * 256); c.stroke();
-    c.fillStyle = "#1b6fb4"; c.font = "bold 22px sans-serif"; c.fillText("0,90 m", 14, 256 - 0.9 / 3 * 256 - 8);
+    const ny = 256 - NET_H / COURT.wallH * 256;   // rede de beach tênis: 1,70 m. Malha fraca abaixo da fita; a bola precisa bater na parede acima dela
+    c.strokeStyle = "rgba(27,111,180,0.22)"; c.lineWidth = 1;
+    for (let x = 5; x <= 507; x += 16) { c.beginPath(); c.moveTo(x, ny); c.lineTo(x, 251); c.stroke(); }
+    for (let y = ny; y <= 251; y += 16) { c.beginPath(); c.moveTo(5, y); c.lineTo(507, y); c.stroke(); }
+    c.fillStyle = "#ffffff"; c.fillRect(5, ny - 3, 502, 7); c.strokeStyle = "#1b6fb4"; c.lineWidth = 2; c.strokeRect(5, ny - 3, 502, 7);
+    c.fillStyle = "#1b6fb4"; c.font = "bold 22px sans-serif"; c.fillText("REDE 1,70 m", 14, ny - 10);
   });
   const face = new THREE.Mesh(new THREE.PlaneGeometry(COURT.wallW, COURT.wallH), new THREE.MeshStandardMaterial({ map: faceTex, roughness: 0.9 }));
   face.position.set(0, COURT.wallH / 2, COURT.wallZ - 0.01); face.rotation.y = Math.PI; scene.add(face);

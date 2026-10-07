@@ -38,7 +38,10 @@ const SPECS: Array<[string, Spec[]]> = [
 
 export function initUI(game: Game, version: string): { showUpdate: (fn: () => void) => void } {
   const toast = $("toast"); let tt = 0;
-  game.onToast = (m) => { toast.textContent = m; toast.classList.add("on"); clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), 900); };
+  game.onToast = (m, sub) => {
+    toast.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; toast.appendChild(el); }
+    toast.classList.add("on"); clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), sub ? 1300 : 900);
+  };
   const upd = () => { $("rally").textContent = `Rali ${game.rally} · Recorde ${game.record}`; $("info").textContent = game.info; };
   game.onHud = upd; upd();
 
@@ -69,12 +72,14 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   $("swingBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); game.manualSwing(); });
   // aviso de tempo: o anel em volta do GOLPE encolhe até fechar no botão (apertar agora); verde = janela de acerto
   const ring = $("timeRing"), swingBtn = $("swingBtn");
+  const cueName = $("cueName");
   game.onCue = (v) => {
-    if (!v) { ring.style.opacity = "0"; swingBtn.classList.remove("now"); return; }
+    if (!v) { ring.style.opacity = "0"; swingBtn.classList.remove("now"); cueName.classList.remove("on"); return; }
+    if (cueName.textContent !== v.label) cueName.textContent = v.label; cueName.classList.add("on");
     const st = cueState(v); ring.dataset.st = st; ring.style.opacity = st === "bad" ? "0.3" : "1";
     ring.style.transform = `scale(${1 + 0.55 * cueProgress(v.ttp)})`; swingBtn.classList.toggle("now", st === "now");
   };
-  $("serveBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); if (game.state !== "rally") game.serve(); });
+  $("serveBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); if (game.state === "wait" || game.state === "dead") game.serve(); });
 
   // câmera: arrastar (um dedo ou mouse) gira 360° em volta da jogadora; pinça, roda do mouse ou ＋/－ = zoom; ⟲ recentraliza
   const camZone = $("camZone"), ptrs = new Map<number, { x: number; y: number }>(); let pinch = 0;
