@@ -25,7 +25,7 @@ function recordResult(v: ScoreView, won: boolean): void {
 export function initMenu(game: Game, openGallery: () => void): void {
   const cover = $("cover"), fmtSel = $("cvFmt") as HTMLSelectElement, lvlSel = $("cvLvl") as HTMLSelectElement, rankBox = $("cvRankBox"), score = $("score"), card = $("endCard");
   const pref = loadPref(); fmtSel.value = pref.fmt; lvlSel.value = pref.lvl;
-  const open = (): void => { cover.hidden = false; document.body.classList.add("menu"); card.hidden = true; renderRank(); };
+  const open = (): void => { cover.hidden = false; document.body.classList.add("menu"); document.body.classList.remove("ended"); card.hidden = true; renderRank(); };
   const close = (): void => { cover.hidden = true; document.body.classList.remove("menu"); rankBox.hidden = true; };
   const renderRank = (): void => {
     const r = loadRank(), tr = LEVELS.map((l) => `<tr><td class="l">${LEVEL_TXT[l]}</td><td>${r.wins[l] ?? 0}</td><td>${r.losses[l] ?? 0}</td></tr>`).join("");
@@ -56,9 +56,9 @@ export function initMenu(game: Game, openGallery: () => void): void {
     recordResult(v, winner === 0);
     const won = winner === 0;
     card.innerHTML = `<h2>${won ? "Vitória! 🏆" : "Derrota"}</h2><p>${won ? "Parabéns, Jaqueline!" : "Quase! Tente de novo."}</p><p>${v.history || "—"}</p><small>${v.fmt} · ${v.level}</small><div class="btns"><button class="main" id="ecAgain">Jogar de novo</button><button id="ecMenu">Menu</button></div>`;
-    card.hidden = false;
-    $("ecAgain").onclick = () => { card.hidden = true; game.startMatch(v.fmtId, v.levelId); };
-    $("ecMenu").onclick = () => { card.hidden = true; game.endMatch(); open(); };
+    card.hidden = false; document.body.classList.add("ended");   // o cartão fica embaixo: quem venceu dança a dança inteira por cima
+    $("ecAgain").onclick = () => { card.hidden = true; document.body.classList.remove("ended"); game.startMatch(v.fmtId, v.levelId); };
+    $("ecMenu").onclick = () => { card.hidden = true; document.body.classList.remove("ended"); game.endMatch(); open(); };
   };
   open();
 }

@@ -103,7 +103,7 @@ export class Match {
     const g = this.g, o = this.o, r = this.score.pointWon(winner);
     if (r.match !== undefined) this.over = r.match;
     this.plan = null; this.letGo = false; this.toss = null;
-    o.swing = null; o.react = winner === 1 ? (g.rally >= 8 ? 2 : 0) : 1; o.reactT = 0;
+    o.swing = null; o.react = r.match !== undefined ? (winner === 1 ? 0 : 1) : winner === 1 ? (g.rally >= 8 ? 2 : 0) : 1; o.reactT = 0;   // fim da partida: quem perde suspira e quem ganha dança (game.ts)
     g.endPoint(winner, reason, r);
   }
 
@@ -235,7 +235,8 @@ export class Match {
     if (g.state === "rally") { this.rally(dt); return; }
     // fora do rali: acaba o golpe e volta ao lugar de saque (depois da reação)
     const sw = o.swing; if (sw) { sw.t += dt * sw.s; if (sw.t >= sw.endT) o.swing = null; }
-    if (!o.swing) this.moveTo(this.homeX(), this.homeZ(1), g.state === "dead" && o.reactT < (o.react === 2 ? 1.9 : o.react === 1 ? 1.1 : 0.5) ? 0 : 2.0 * (S.stamina ? o.stamina.mul() : 1), dt);
+    if (this.over !== null) o.vx = o.vz = 0;   // partida acabada: ela fica onde está (quem ganha dança)
+    else if (!o.swing) this.moveTo(this.homeX(), this.homeZ(1), g.state === "dead" && o.reactT < (o.react === 2 ? 1.9 : o.react === 1 ? 1.1 : 0.5) ? 0 : 2.0 * (S.stamina ? o.stamina.mul() : 1), dt);
   }
 
   private rally(dt: number): void {

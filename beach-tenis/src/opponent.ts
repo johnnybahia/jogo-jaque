@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { Rig, SWINGS } from "./rig";
 import { PoseFX } from "./posefx";
 import { Stamina } from "./stamina";
+import { Dancer } from "./dance";
 import { MATCH } from "./scene";
 
 /** golpe da adversária em andamento (tempos do clipe, como o da jogadora; posições no mundo) */
@@ -12,7 +13,7 @@ export interface OppSwing { clip: string; key: string; kind: string; s: number; 
  * quem decide e lança a bola é a IA (ver game.ts). Em coordenadas locais dela: frente = −z do mundo, esquerda = −x do mundo.
  */
 export class Opponent {
-  rig: Rig; fx: PoseFX; stamina = new Stamina();
+  rig: Rig; fx: PoseFX; stamina = new Stamina(); dancer = new Dancer();
   x = 0; z = MATCH.len; vx = 0; vz = 0;
   swing: OppSwing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
   react = 0; reactT = 0;
@@ -28,7 +29,7 @@ export class Opponent {
 
   setVisible(v: boolean): void { this.rig.root.visible = v; this.shadow.visible = v; }
 
-  place(x: number, z: number): void { this.x = x; this.z = z; this.vx = this.vz = 0; this.swing = null; this.swingAct = null; this.swingW = 0; this.react = 0; this.rig.root.position.set(x, 0, z); }
+  place(x: number, z: number): void { this.x = x; this.z = z; this.vx = this.vz = 0; this.swing = null; this.swingAct = null; this.swingW = 0; this.react = 0; this.dancer.stop(); this.rig.root.position.set(x, 0, z); }
 
   /** ponto de contato do golpe no mundo, para a adversária parada em (x, z) */
   contactWorld(clip: string, x = this.x, z = this.z): THREE.Vector3 | null {
@@ -43,7 +44,8 @@ export class Opponent {
     const R = this.rig, sw = this.swing;
     const target = sw ? 1 : 0;
     this.swingW += Math.sign(target - this.swingW) * Math.min(Math.abs(target - this.swingW), dt / (target ? (sw?.serve ? 0.35 : 0.15) : 0.3));
-    R.loco.step(R, dt, -this.vx, -this.vz, 1 - this.swingW);   // velocidade nos eixos dela: esquerda e frente
+    const dw = this.dancer.update(dt);   // dança de vitória: toma o lugar da locomoção e da camada de vida
+    R.loco.step(R, dt, -this.vx, -this.vz, (1 - this.swingW) * (1 - dw));   // velocidade nos eixos dela: esquerda e frente
     for (const n of SWINGS) { const a = R.actions.get(n); if (!a || a === this.swingAct) continue; const w = a.getEffectiveWeight(); if (w > 0) a.setEffectiveWeight(Math.max(0, w - dt / 0.2)); }
     if (this.swingAct) {
       const d = this.swingAct.getClip().duration;
@@ -53,7 +55,7 @@ export class Opponent {
     }
     R.root.position.set(this.x, 0, this.z);
     R.mixer.update(0); R.root.updateMatrixWorld(true);
-    this.fx.update({ dt, time, ball: ball ? this.ball.set(ball.x, ball.y, ball.z) : null, vx: -this.vx, vz: -this.vz, stamina: this.stamina.value, swingW: this.swingW, react: this.react, rt: this.reactT });
+    this.fx.enabled = dw < 0.02; this.fx.update({ dt, time, ball: ball ? this.ball.set(ball.x, ball.y, ball.z) : null, vx: -this.vx, vz: -this.vz, stamina: this.stamina.value, swingW: this.swingW, react: this.react, rt: this.reactT });
     let fw = 0; if (sw) { const x = Math.max(0, 1 - Math.abs(sw.t - sw.contactT) / 0.3); fw = x * x * (3 - 2 * x); }
     R.fixRacket(fw);
     this.shadow.position.set(this.x, 0.01, this.z);

@@ -1,0 +1,20 @@
+{
+ "dance_samba": {
+  "name": "dance_samba",
+  "frames": 717,
+  "fps": 30,
+  "duration": 23.866666666666667,
+  "source": "samba dancing.fbx",
+  "speed_x_m_s": -0.0,
+  "speed_z_m_s": 0.0
+ },
+ "dance_gangnam": {
+  "name": "dance_gangnam",
+  "frames": 372,
+  "fps": 30,
+  "duration": 12.366666666666667,
+  "source": "gangnam style.fbx",
+  "speed_x_m_s": -0.0,
+  "speed_z_m_s": -0.0
+ }
+}
