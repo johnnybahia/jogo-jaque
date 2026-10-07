@@ -19,7 +19,7 @@ def build(seg, pick, name):
     ex = {k: x[c0:c1] for k, x in extra.items()}
     Q, D, yaw0, delta, dbg = solve(sub, s_px[c0:c1], ex)
     hl = np.einsum('ji,tj->ti', RREST[S['Hips']], delta) / 0.01
-    return dict(name=name, Q=Q, hips_loc=hl, contact=int(p - c0), fps=FPS, frames=int(c1 - c0), src=f'{LABELS[seg]} t={(a+p)/FPS:.2f}s', yaw0=float(np.degrees(yaw0)))
+    return dict(name=name, D=D, delta=delta, dbg=dbg, win=(a + c0, a + c1), Q=Q, hips_loc=hl, contact=int(p - c0), fps=FPS, frames=int(c1 - c0), src=f'{LABELS[seg]} t={(a+p)/FPS:.2f}s', yaw0=float(np.degrees(yaw0)))
 if __name__ == '__main__':
     plan = json.loads(sys.argv[1]) if len(sys.argv) > 1 else [[1, 0, 'v_fh_est_1']]
     out = {}; meta = {}
