@@ -8,6 +8,7 @@ import { Footprints } from "./footprints";
 import { CueMarker } from "./cuemark";
 import { STROKES, strokeOf } from "./strokes";
 import { Stamina } from "./stamina";
+import { PoseFX } from "./posefx";
 import { Ball, BALL_R, Sample, Tun, heightAtWall, newBall, predict, stepBall } from "./physics";
 
 const CAM_PITCH = 0.285;   // inclinação padrão da câmera (rad): 2,5 m de altura a 4,8 m atrás
@@ -48,6 +49,7 @@ export class Game {
   rally = 0; record = loadRecord(); deadTimer = 0; time = 0; serveTime = 0;
   swing: Swing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
   cue: Cue | null = null; private lastCue: Cue | null = null; marker: CueMarker; perfects = 0;
+  fx: PoseFX | null = null; private fxBall = new THREE.Vector3();   // vida do personagem: olhar na bola, respiração, inclinação
   stamina = new Stamina(); private tired = false; private staSent = -1;   // fôlego: gasta correndo; sem fôlego a corrida fica mais lenta
   onStamina: (v: number, mul: number) => void = () => {};
   lastLaunch: { pass: number; want: string | null; ms: number } | null = null;   // diagnóstico: como a última bola foi escolhida
@@ -88,7 +90,7 @@ export class Game {
     this.rig.root.position.set(0, 0, 0);
     this.rig.faceAssist = S.faceAssist; this.rig.applyRacketTransform(S, S.playerScale); this.rig.findPeaks();
     this.applySettings();
-    this.foot.bind(this.rig.model); this.animate(0); this.rig.root.updateMatrixWorld(true); this.foot.calibrate();
+    this.fx = new PoseFX(this.rig); this.foot.bind(this.rig.model); this.animate(0); this.rig.root.updateMatrixWorld(true); this.foot.calibrate();
     this.setCamera(true);
   }
 
@@ -466,6 +468,11 @@ export class Game {
       if (!sw && this.swingW <= 0) { this.swingAct = null; }
     }
     R.mixer.update(0);
+    if (this.fx) {   // vida do personagem por cima do clipe (olhar na bola, respiração, inclinação); fora na galeria
+      this.fx.enabled = !this.viewer; R.root.updateMatrixWorld(true);
+      const live = (this.state === "rally" || this.state === "serve") && this.ballMesh.visible;
+      this.fx.update({ dt, time: this.time, ball: live ? this.fxBall.set(this.ball.x, this.ball.y, this.ball.z) : null, vx: this.vx, vz: this.vz, stamina: S.stamina ? this.stamina.value : 1, swingW: this.swingW });
+    }
     const sw = this.swing; let fw = 0;
     if (sw) { const x = Math.max(0, 1 - Math.abs(sw.t - sw.contactT) / 0.3); fw = x * x * (3 - 2 * x) * S.faceAssist; }
     R.fixRacket(fw);
