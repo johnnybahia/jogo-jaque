@@ -10,6 +10,7 @@ import { STROKES, strokeOf } from "./strokes";
 import { Stamina } from "./stamina";
 import { PoseFX } from "./posefx";
 import { WallFx } from "./wallfx";
+import { Dust } from "./dust";
 import { Ball, BALL_R, G, Sample, Tun, heightAtWall, newBall, predict, solveShot, stepBall } from "./physics";
 
 const CAM_PITCH = 0.285;   // inclinação padrão da câmera (rad): 2,5 m de altura a 4,8 m atrás
@@ -52,7 +53,7 @@ export class Game {
   react = 0; reactT = 0; private walkAt = 0.5; private recBeaten = false;   // reação ao fim do ponto (0 nada, 1 suspiro, 2 comemoração), tempo desde o ponto e quando ela começa a voltar ao saque
   swing: Swing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
   cue: Cue | null = null; private lastCue: Cue | null = null; marker: CueMarker; perfects = 0;
-  wallFx: WallFx;
+  wallFx: WallFx; dust: Dust;
   fx: PoseFX | null = null; private fxBall = new THREE.Vector3();   // vida do personagem: olhar na bola, respiração, inclinação
   stamina = new Stamina(); private tired = false; private staSent = -1;   // fôlego: gasta correndo; sem fôlego a corrida fica mais lenta
   onStamina: (v: number, mul: number) => void = () => {};
@@ -79,7 +80,7 @@ export class Game {
     this.ballShadow = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), bm); this.ballShadow.rotation.x = -Math.PI / 2; this.ballShadow.position.y = 0.012; this.scene.add(this.ballShadow);
     this.ballMesh = new THREE.Group(); this.ballMesh.add(new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 20, 14), new THREE.MeshStandardMaterial({ color: 0xd8f23a, emissive: 0x6a7a10, roughness: 0.7 }))); this.scene.add(this.ballMesh);
     this.ballMesh.visible = false; this.ballShadow.visible = false;
-    this.marker = new CueMarker(this.scene); this.wallFx = new WallFx(this.scene);
+    this.marker = new CueMarker(this.scene); this.wallFx = new WallFx(this.scene); this.dust = new Dust(this.scene); this.foot.onPlant = (x, z, sp) => this.dust.puff(x, z, sp);
     this.resize();
   }
 
@@ -364,7 +365,7 @@ export class Game {
     if (sw.preview) return;
     if (S.stamina) this.stamina.drain(sw.kind === "serve" ? 0.02 : sw.kind === "over" || sw.kind === "smash" ? 0.03 : 0.012);   // bater cansa (golpes por cima mais)
     const act = this.swingAct!; act.time = Math.min(sw.contactT, sw.duration - 1e-3);
-    this.rig.root.position.set(sw.x1, 0, sw.z1);
+    this.rig.root.position.set(sw.x1, 0, sw.z1); if (Math.hypot(sw.x1 - sw.x0, sw.z1 - sw.z0) > 0.25) this.dust.puff(sw.x1, sw.z1, 3.2);   // freada do golpe
     this.rig.mixer.update(0); this.rig.root.updateMatrixWorld(true); this.rig.fixRacket(this.rig.faceAssist); this.rig.root.updateMatrixWorld(true);
     const H = new THREE.Vector3(); this.rig.head.getWorldPosition(H);
     const b = this.ball; const B = new THREE.Vector3(b.x, b.y, b.z); const gap = H.distanceTo(B);
@@ -455,7 +456,7 @@ export class Game {
       p.x = sw.x0 + (sw.x1 - sw.x0) * e; p.z = sw.z0 + (sw.z1 - sw.z0) * e;
       if (sw.t >= sw.endT) { this.swing = null; if (this.viewer) this.viewer.wait = 0.7; }
     } else if (this.viewer) { this.viewer.wait -= dt; if (this.viewer.wait <= 0) this.startView(); }   // galeria: repete o golpe depois de uma pausa
-    this.wallFx.update(dt); this.animate(dt);
+    this.wallFx.update(dt); this.dust.update(dt); this.animate(dt);
     this.rig.root.updateMatrixWorld(true);
     this.foot.enabled = S.footprints; this.foot.life = S.footLife; this.foot.update(dt, this.swing ? 0 : Math.hypot(this.vx, this.vz));
     this.syncVisuals(dt);

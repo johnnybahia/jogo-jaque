@@ -19,6 +19,7 @@ interface FootState { bone: THREE.Object3D; toe: THREE.Object3D | null; planted:
 
 export class Footprints {
   enabled = true; life = 25; baseY = 0.1;
+  onPlant: ((x: number, z: number, speed: number) => void) | null = null;   // pé pousou no chão (poeira)
   private mesh: THREE.InstancedMesh; private alpha: THREE.InstancedBufferAttribute;
   private born = new Float32Array(MAX).fill(-1e9); private peak = new Float32Array(MAX); private next = 0; private time = 0;
   private feet: FootState[] = []; private m = new THREE.Matrix4(); private q = new THREE.Quaternion(); private v = new THREE.Vector3(); private s = new THREE.Vector3();
@@ -53,7 +54,7 @@ export class Footprints {
 
   private stamp(f: FootState, speed: number): void {
     const i = this.next; this.next = (this.next + 1) % MAX;
-    f.bone.getWorldPosition(this.tmp); let yaw = 0;
+    f.bone.getWorldPosition(this.tmp); let yaw = 0; this.onPlant?.(this.tmp.x, this.tmp.z, speed);
     if (f.toe) { f.toe.getWorldPosition(this.tmp2); yaw = Math.atan2(this.tmp2.x - this.tmp.x, this.tmp2.z - this.tmp.z); }
     const k = Math.min(1, speed / 3.6);
     this.q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
