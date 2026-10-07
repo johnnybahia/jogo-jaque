@@ -22,7 +22,7 @@ const SPECS: Array<[string, Spec[]]> = [
     { key: "faceAssist", label: "Face da raquete na parede (contato)", min: 0, max: 1, step: 0.05, recalc: true },
     { key: "playerScale", label: "Escala da jogadora", min: 1.3, max: 2.2, step: 0.01, recalc: true },
   ]],
-  ["Raquete (posição m / rotação °)", [
+  ["Raquete — ajuste fino sobre a pegada (m / °)", [
     { key: "rkX", label: "X", min: -0.15, max: 0.15, step: 0.005 }, { key: "rkY", label: "Y", min: -0.15, max: 0.15, step: 0.005 }, { key: "rkZ", label: "Z", min: -0.15, max: 0.15, step: 0.005 },
     { key: "rkRX", label: "Rot X", min: -180, max: 180, step: 1 }, { key: "rkRY", label: "Rot Y", min: -180, max: 180, step: 1 }, { key: "rkRZ", label: "Rot Z", min: -180, max: 180, step: 1 },
   ]],

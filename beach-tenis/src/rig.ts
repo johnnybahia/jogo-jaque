@@ -1,10 +1,20 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { cleanWrists, WristTwist } from "./wrist";
+import { applyReadyPose } from "./ready";
 
 export interface ClipMeta { name: string; kind: string; contact_time?: number; frames: number; duration?: number; speed_x_m_s?: number; speed_z_m_s?: number; }
 export const LOCO = ["idle", "run_f", "run_b", "run_l", "run_r"] as const;
 export const SWINGS = ["forehand_1", "forehand_2", "backhand_1", "backhand_2", "serve_1", "serve_2", "smash_1", "smash_2", "fvolley_1", "fvolley_2", "bvolley_1", "bvolley_2"];
+
+// Pegada da raquete. Referencial da mão (medido nos ossos, pose de repouso): F = dedos, A = lado do polegar, N = palma.
+// A raquete atravessa a palma na diagonal: eixo do cabo→cabeça = A girado BETA para F; a face fica paralela à palma (normal = N).
+const D2R = Math.PI / 180;
+const GRIP = { beta: 55 * D2R, handleY: -0.035, handleZ: 0.008, palmLift: 1.2 };   // y do cabo na palma (m), centro do cabo em z (m), cabo acima do osso (unid. da mão)
+// curvatura dos dedos da mão que segura (graus por junta: base, meio, ponta), em torno do eixo F×N
+const FINGERS: [string, number[]][] = [["Index", [38, 62, 40]], ["Middle", [44, 68, 44]], ["Ring", [50, 70, 46]], ["Pinky", [56, 70, 46]]];
+const THUMB = [22, 28, 20];
 
 /** O GLB sai sem metallicFactor (padrão glTF = 1) e a cena não tem mapa de ambiente: sem isto a jogadora renderiza preta. O BLEND do export também é desnecessário (textura opaca). */
 function fixSkinMaterial(mt: THREE.Material): void {
@@ -27,6 +37,9 @@ export class Rig {
   faceAssist = 1;
   peak = new Map<string, number>();
   presetQ = new THREE.Quaternion();
+  twist: WristTwist | null = null;
+  private grip: { F: THREE.Vector3; A: THREE.Vector3; N: THREE.Vector3; palm: THREE.Vector3 } | null = null;
+  private fingers: { bone: THREE.Bone; rest: THREE.Quaternion; axis: THREE.Vector3; ang: number }[] = [];
   private tq = new THREE.Quaternion(); private tp = new THREE.Vector3(); private ts = new THREE.Vector3();
 
   async load(base: string): Promise<void> {
@@ -34,15 +47,20 @@ export class Rig {
     const [gltf, meta] = await Promise.all([loader.loadAsync(base + "models/jaqueline.glb"), fetch(base + "models/clips.json").then((r) => r.json())]);
     this.meta = meta;
     this.model = gltf.scene as THREE.Group;
-    this.model.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { m.frustumCulled = false; m.castShadow = false; for (const mt of Array.isArray(m.material) ? m.material : [m.material]) fixSkinMaterial(mt); } });
+    const skinned: THREE.SkinnedMesh[] = [];
+    this.model.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { skinned.push(m); m.frustumCulled = false; m.castShadow = false; for (const mt of Array.isArray(m.material) ? m.material : [m.material]) fixSkinMaterial(mt); } });
+    cleanWrists(gltf.animations, WristTwist.hands(this.model), (n) => !(LOCO as readonly string[]).includes(n));
+    if (skinned[0]) this.twist = WristTwist.attach(skinned[0]);
     this.root.add(this.model);
+    this.model.traverse((o) => { if (!this.hand && /RightHand$/.test(o.name)) this.hand = o; });
+    if (!this.hand) throw new Error("osso RightHand não encontrado");
+    this.captureGrip();
+    applyReadyPose(this.model, gltf.animations, LOCO, this.gripAxes().q);
     this.mixer = new THREE.AnimationMixer(this.model);
     for (const c of gltf.animations) {
       const a = this.mixer.clipAction(c); a.play(); a.timeScale = 0; a.setEffectiveWeight(0); a.time = 0;
       this.actions.set(c.name, a); this.durations.set(c.name, c.duration);
     }
-    this.model.traverse((o) => { if (!this.hand && /RightHand$/.test(o.name)) this.hand = o; });
-    if (!this.hand) throw new Error("osso RightHand não encontrado");
     try {
       const rk = await loader.loadAsync(base + "models/racket.glb");
       rk.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.frustumCulled = false; } });
@@ -73,17 +91,59 @@ export class Rig {
     this.head.position.set(0, hy, 0); g.add(this.head);
   }
 
+  /** referencial da pegada e eixos de curvatura dos dedos, a partir dos ossos na pose de repouso (antes de qualquer animação) */
+  private captureGrip(): void {
+    const hand = this.hand!; this.model.updateMatrixWorld(true);
+    const bone = (n: string) => { let f: THREE.Object3D | null = null; this.model.traverse((o) => { if (!f && new RegExp(`RightHand${n}$`).test(o.name)) f = o; }); return f as THREE.Bone | null; };
+    const inv = hand.matrixWorld.clone().invert(); const at = (b: THREE.Object3D) => b.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv);
+    const mid = bone("Middle1"), idx = bone("Index1"), pin = bone("Pinky1"), t1 = bone("Thumb1"), t4 = bone("Thumb4");
+    if (!mid || !idx || !pin || !t1 || !t4) return;
+    const F = at(mid).normalize(); const A = at(idx).sub(at(pin)); A.addScaledVector(F, -A.dot(F)).normalize();
+    const N = new THREE.Vector3().crossVectors(A, F).normalize(); if (N.dot(at(t4).sub(at(t1))) < 0) N.negate();
+    const palm = at(mid).multiplyScalar(0.5).addScaledVector(N, GRIP.palmLift);
+    this.grip = { F, A, N, palm };
+    // dedos: junta a junta, eixo de curvatura (F×N) no referencial do pai (osso pai em repouso)
+    const curl = new THREE.Vector3().crossVectors(F, N).normalize();
+    const addFinger = (name: string, angs: number[], axisHand: THREE.Vector3) => {
+      const handQ = hand.getWorldQuaternion(new THREE.Quaternion()); const aw = axisHand.clone().applyQuaternion(handQ);
+      for (let j = 1; j <= 3; j++) { const b = bone(`${name}${j}`); if (!b || !b.parent) continue;
+        const pq = b.parent.getWorldQuaternion(new THREE.Quaternion());
+        this.fingers.push({ bone: b, rest: b.quaternion.clone(), axis: aw.clone().applyQuaternion(pq.invert()), ang: angs[j - 1] * D2R }); }
+    };
+    for (const [n, a] of FINGERS) addFinger(n, a, curl);
+    const T = at(t4).sub(at(t1)).normalize(); addFinger("Thumb", THUMB, new THREE.Vector3().crossVectors(T, N).normalize());
+  }
+
+  /** eixos da raquete no referencial da mão (X largura, Y cabo→cabeça, Z face) e a rotação equivalente */
+  private gripAxes(): { xr: THREE.Vector3; yr: THREE.Vector3; zr: THREE.Vector3; q: THREE.Quaternion } {
+    const g = this.grip; if (!g) return { xr: new THREE.Vector3(1, 0, 0), yr: new THREE.Vector3(0, 1, 0), zr: new THREE.Vector3(0, 0, 1), q: new THREE.Quaternion() };
+    const yr = g.A.clone().multiplyScalar(Math.cos(GRIP.beta)).addScaledVector(g.F, Math.sin(GRIP.beta)).normalize();
+    const zr = g.N.clone(), xr = new THREE.Vector3().crossVectors(yr, zr);
+    return { xr, yr, zr, q: new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xr, yr, zr)) };
+  }
+
+  /** dedos da mão que segura fechados em volta do cabo (depois de cada mixer.update) */
+  private applyFingers(): void {
+    const q = new THREE.Quaternion();
+    for (const f of this.fingers) f.bone.quaternion.copy(q.setFromAxisAngle(f.axis, f.ang).multiply(f.rest));
+  }
+
   applyRacketTransform(p: { rkX: number; rkY: number; rkZ: number; rkRX: number; rkRY: number; rkRZ: number }, playerScale: number): void {
     this.model.scale.setScalar(playerScale); this.root.updateMatrixWorld(true);
     const ws = new THREE.Vector3(); this.hand!.getWorldScale(ws);
     this.racket.scale.setScalar(1 / ws.x);
-    const d = THREE.MathUtils.degToRad;
-    this.racket.position.set(p.rkX / ws.x, p.rkY / ws.x, p.rkZ / ws.x);
-    this.racket.rotation.set(d(p.rkRX), d(p.rkRY), d(p.rkRZ)); this.presetQ.copy(this.racket.quaternion);
+    const g = this.grip; if (!g) return;
+    const d = THREE.MathUtils.degToRad, u = 1 / ws.x;              // metros → unidades da mão
+    const { xr, yr, zr, q: base } = this.gripAxes();
+    this.presetQ.copy(base).multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(d(p.rkRX), d(p.rkRY), d(p.rkRZ))));
+    this.racket.position.copy(g.palm).addScaledVector(yr, -GRIP.handleY * u).addScaledVector(zr, -GRIP.handleZ * u)
+      .addScaledVector(xr, p.rkX * u).addScaledVector(yr, p.rkY * u).addScaledVector(zr, p.rkZ * u);
+    this.racket.quaternion.copy(this.presetQ);
   }
 
   /** gira a raquete em torno do próprio eixo para a face olhar a parede (+Z) no contato; w=0 usa só a pegada da mão */
   fixRacket(w: number): void {
+    this.twist?.update(); this.applyFingers();
     const r = this.racket; const hand = this.hand!;
     hand.updateWorldMatrix(true, false); hand.matrixWorld.decompose(this.tp, this.tq, this.ts);
     const qh = this.tq.clone(); r.quaternion.copy(this.presetQ);
@@ -117,8 +177,10 @@ export class Rig {
       const c0 = this.meta[n]?.contact_time ?? 1; const dur = this.durations.get(n) ?? 2;
       const k0 = Math.max(1, Math.round((c0 - 0.4) * 30)), k1 = Math.min(Math.floor(dur * 30) - 2, Math.round((c0 + 0.4) * 30));
       const P: THREE.Vector3[] = []; for (let k = k0 - 1; k <= k1 + 1; k++) P.push(this.measure(n, k / 30));
-      let best = -1, bk = k0;
-      for (let i = 1; i < P.length - 1; i++) { const v = P[i + 1].distanceTo(P[i - 1]); if (v > best) { best = v; bk = k0 - 1 + i; } }
+      let best = -1, bk = k0; const sp: number[] = [];
+      for (let i = 1; i < P.length - 1; i++) { const v = P[i + 1].distanceTo(P[i - 1]); sp[i] = v; if (v > best) { best = v; bk = k0 - 1 + i; } }
+      // golpes por cima: o pico de velocidade vem na descida (seguimento); o contato é o ponto mais alto entre os quadros rápidos
+      if (/^(serve|smash)/.test(n)) { let hi = -1e9; for (let i = 1; i < P.length - 1; i++) if (sp[i] >= 0.75 * best && P[i].y > hi) { hi = P[i].y; bk = k0 - 1 + i; } }
       this.peak.set(n, bk / 30);
     }
   }
