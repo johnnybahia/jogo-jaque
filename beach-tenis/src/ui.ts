@@ -21,10 +21,6 @@ const SPECS: Array<[string, Spec[]]> = [
   ]],
   ["Marcas dos pés", [{ key: "footLife", label: "Duração (s)", min: 5, max: 60, step: 1 }]],
   ["Sincronia", [{ key: "contactOffset", label: "Ajuste do contato (frames)", min: -10, max: 10, step: 1, recalc: true }]],
-  ["Física", [
-    { key: "eSand", label: "Quique na areia", min: 0.1, max: 0.8, step: 0.01 },
-    { key: "eWall", label: "Quique na parede", min: 0.5, max: 0.95, step: 0.01 },
-  ]],
   ["Visual", [
     { key: "ballVisual", label: "Tamanho visual da bola ×", min: 1, max: 4, step: 0.1 },
     { key: "faceAssist", label: "Face da raquete na parede (contato)", min: 0, max: 1, step: 0.05, recalc: true },
