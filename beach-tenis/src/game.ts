@@ -6,7 +6,7 @@ import { buildEnvironment, buildMatchCourt, blobTexture, COURT, MATCH, NET_H } f
 import { S, loadRecord, saveRecord } from "./settings";
 import { Footprints } from "./footprints";
 import { CueMarker } from "./cuemark";
-import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, TOSS_REL, TOSS_APEX } from "./strokes";
+import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
 import { Stamina } from "./stamina";
 import { PoseFX } from "./posefx";
 import { WallFx } from "./wallfx";
@@ -23,7 +23,7 @@ interface Ev { clip: string; kind: string; key: string; prep: number; x1: number
 export interface Cand { clip: string; kind: string; key: string; prep: number; cx: number; cy: number; cz: number; }
 const DEFAULT_CAND: Cand = { clip: "", kind: "ground", key: "fh_din", prep: 0.55, cx: -0.3, cy: 1.2, cz: 0.5 };   // se os clipes do vídeo não carregaram
 /** saque: a bola sai da mão esquerda em `rel` (s do clipe) e sobe em arco até o ponto de contato com a raquete (mão em h*, contato em c*, mundo) */
-interface Toss { rel: number; hx: number; hy: number; hz: number; cx: number; cy: number; cz: number; }
+interface Toss { rel: number; apex: number; hx: number; hy: number; hz: number; cx: number; cy: number; cz: number; }
 interface Swing { toss?: Toss; startT: number; endT: number; clip: string; s: number; contactT: number; t: number; duration: number; x0: number; z0: number; x1: number; z1: number; contacted: boolean; kind: string; plan?: number[]; err: number; whiff: boolean; msg?: string; preview?: boolean; }
 /** próxima rebatida: onde a jogadora deve estar, quando a bola chega e quando apertar GOLPE (tempos no relógio do jogo) */
 interface Cue { arrival: number; press: number; prep: number; x1: number; z1: number; smp: Sample; clip: string; kind: string; key: string; shift: number; cost: number; }
@@ -167,8 +167,8 @@ export class Game {
   private serveStart(): boolean {
     const clip = SERVE_CLIP, r = this.rig, act = r.actions.get(clip), cl = r.contactLocal.get(clip); if (!act || !cl || !r.leftHand) return false;
     const p = r.root.position, dur = r.durations.get(clip) ?? 2, ct = r.ct(clip, S.contactOffset), h = r.measureObj(clip, TOSS_REL, r.leftHand);
-    this.swing = { clip, s: S.timeScale, contactT: ct, t: 0, startT: 0, endT: Math.min(dur - 0.02, ct + FOLLOW + 0.15), duration: dur, x0: p.x, z0: p.z, x1: p.x, z1: p.z, contacted: false, kind: "serve", err: 0, whiff: false,
-      toss: { rel: TOSS_REL, hx: p.x + h.x, hy: h.y, hz: p.z + h.z, cx: p.x + cl.x, cy: cl.y, cz: p.z + cl.z } };
+    this.swing = { clip, s: S.timeScale, contactT: ct, t: SERVE_START, startT: SERVE_START, endT: Math.min(dur - 0.02, ct + SERVE_FOLLOW), duration: dur, x0: p.x, z0: p.z, x1: p.x, z1: p.z, contacted: false, kind: "serve", err: 0, whiff: false,
+      toss: { rel: TOSS_REL, apex: tossApex((ct - TOSS_REL) / S.timeScale), hx: p.x + h.x, hy: h.y, hz: p.z + h.z, cx: p.x + cl.x, cy: cl.y, cz: p.z + cl.z } };
     if (this.match) this.match.serveBy = 0;
     this.swingAct = act; this.vx = 0; this.vz = 0; this.cue = null; this.lastCue = null; this.state = "serve"; this.rally = 0; this.react = 0; this.recBeaten = false; this.foot.clear();
     Object.assign(this.ball, newBall(), { x: p.x, y: 1.5, z: p.z });
@@ -181,7 +181,7 @@ export class Game {
     sw.t += dt * sw.s; const z = sw.toss, b = this.ball;
     if (sw.t >= z.rel) {
       const u = Math.min(1, (sw.t - z.rel) / Math.max(1e-3, sw.contactT - z.rel));
-      b.x = z.hx + (z.cx - z.hx) * u; b.z = z.hz + (z.cz - z.hz) * u; b.y = z.hy + (z.cy - z.hy) * u + 4 * TOSS_APEX * u * (1 - u); b.vx = b.vy = b.vz = 0;
+      b.x = z.hx + (z.cx - z.hx) * u; b.z = z.hz + (z.cz - z.hz) * u; b.y = z.hy + (z.cy - z.hy) * u + 4 * z.apex * u * (1 - u); b.vx = b.vy = b.vz = 0;
     }
     if (!sw.contacted && sw.t >= sw.contactT) { sw.t = sw.contactT; sw.contacted = true; this.doContact(sw); }
   }
@@ -525,7 +525,7 @@ export class Game {
 
   private animate(dt: number): void {
     const R = this.rig; const target = this.swing ? 1 : 0;
-    this.swingW += Math.sign(target - this.swingW) * Math.min(Math.abs(target - this.swingW), dt / (target ? (this.swing?.kind === "serve" ? 0.4 : 0.15) : 0.3));
+    this.swingW += Math.sign(target - this.swingW) * Math.min(Math.abs(target - this.swingW), dt / (target ? (this.swing?.kind === "serve" ? 0.35 : 0.15) : 0.3));
     const Lw = 1 - this.swingW;
     if (R.loco.ready) R.loco.step(R, dt, this.vx, this.vz, Lw);
     else {   // sem loco2.glb: locomoção do GLB principal

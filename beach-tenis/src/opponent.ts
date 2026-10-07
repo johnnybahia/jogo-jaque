@@ -42,7 +42,7 @@ export class Opponent {
   animate(dt: number, time: number, ball: { x: number; y: number; z: number } | null): void {
     const R = this.rig, sw = this.swing;
     const target = sw ? 1 : 0;
-    this.swingW += Math.sign(target - this.swingW) * Math.min(Math.abs(target - this.swingW), dt / (target ? (sw?.serve ? 0.4 : 0.15) : 0.3));
+    this.swingW += Math.sign(target - this.swingW) * Math.min(Math.abs(target - this.swingW), dt / (target ? (sw?.serve ? 0.35 : 0.15) : 0.3));
     R.loco.step(R, dt, -this.vx, -this.vz, 1 - this.swingW);   // velocidade nos eixos dela: esquerda e frente
     for (const n of SWINGS) { const a = R.actions.get(n); if (!a || a === this.swingAct) continue; const w = a.getEffectiveWeight(); if (w > 0) a.setEffectiveWeight(Math.max(0, w - dt / 0.2)); }
     if (this.swingAct) {
