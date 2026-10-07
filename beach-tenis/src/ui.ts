@@ -3,6 +3,7 @@ import { S, DEFAULTS, saveSettings, Settings } from "./settings";
 import { cueState, cueProgress } from "./cuemark";
 import { mountPwaUI } from "./pwaui";
 import { STROKES, strokeOf } from "./strokes";
+import { initMenu } from "./menu";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type Spec = { key: keyof Settings; label: string; min: number; max: number; step: number; recalc?: boolean };
@@ -40,7 +41,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   };
   const sta = $("sta"), staBar = sta.firstElementChild as HTMLElement;
   game.onStamina = (v) => { staBar.style.width = `${Math.round(v * 100)}%`; sta.classList.toggle("low", v < 0.3); };
-  const upd = () => { $("rally").textContent = `Rali ${game.rally} · Recorde ${game.record}`; $("info").textContent = game.info; };
+  const upd = () => { $("rally").textContent = game.mode === "match" ? `Rali ${game.rally}` : `Rali ${game.rally} · Recorde ${game.record}`; $("info").textContent = game.info; };
   game.onHud = upd; upd();
 
   // joystick
@@ -74,7 +75,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   game.onCue = (v) => {
     if (!v) { ring.style.opacity = "0"; swingBtn.classList.remove("now"); cueName.classList.remove("on"); return; }
     if (cueName.textContent !== v.label) cueName.textContent = v.label; cueName.classList.add("on");
-    const st = cueState(v); ring.dataset.st = st; ring.style.opacity = st === "bad" ? "0.3" : "1";
+    const st = cueState(v); ring.dataset.st = st; ring.style.opacity = st === "bad" ? "0.3" : st === "out" ? "0.55" : "1";
     ring.style.transform = `scale(${1 + 0.55 * cueProgress(v.ttp)})`; swingBtn.classList.toggle("now", st === "now");
   };
   $("serveBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); if (game.state === "wait" || game.state === "dead") game.serve(); });
@@ -154,6 +155,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   };
   build();
   setInterval(() => { if (!panel.hidden) renderLog(); }, 700);
+  initMenu(game, () => { openView(); });
 
   return {
     showUpdate: (fn) => { const u = $("upd"); u.hidden = false; $("updBtn").onclick = fn; },

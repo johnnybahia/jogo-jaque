@@ -147,6 +147,13 @@ export class WristTwist {
     return res;
   }
 
+  /** o mesmo ajuste para um clone do modelo (ossos achados por nome): a 2ª jogadora usa a pele já refeita com T1/T2 */
+  cloneFor(root: THREE.Object3D): WristTwist {
+    const r = new WristTwist(), by = (n: string) => root.getObjectByName(n) as THREE.Bone;
+    for (const s of this.sides) r.sides.push({ hand: by(s.hand.name), axis: s.axis.clone(), rest: s.rest, t1: by(s.t1.name), t2: by(s.t2.name) });
+    return r;
+  }
+
   /** depois de cada mixer.update: T1/T2 giram uma fração da torção da mão */
   update(): void {
     for (const s of this.sides) {

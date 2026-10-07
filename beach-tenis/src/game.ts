@@ -2,41 +2,40 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { Rig, LOCO, SWINGS, prepOf } from "./rig";
-import { buildEnvironment, blobTexture, COURT, NET_H } from "./scene";
+import { buildEnvironment, buildMatchCourt, blobTexture, COURT, MATCH, NET_H } from "./scene";
 import { S, loadRecord, saveRecord } from "./settings";
 import { Footprints } from "./footprints";
 import { CueMarker } from "./cuemark";
-import { STROKES, strokeOf } from "./strokes";
+import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, TOSS_REL, TOSS_APEX } from "./strokes";
 import { Stamina } from "./stamina";
 import { PoseFX } from "./posefx";
 import { WallFx } from "./wallfx";
 import { Dust } from "./dust";
+import { Opponent } from "./opponent";
+import { Match, LEVELS, ScoreView, inCourt } from "./match";
+import { FORMATS, PointResult, Side } from "./rules";
 import { Ball, BALL_R, G, Sample, Tun, heightAtWall, newBall, predict, solveShot, stepBall } from "./physics";
 
 const CAM_PITCH = 0.285;   // inclinação padrão da câmera (rad): 2,5 m de altura a 4,8 m atrás
 const MAX_SPEED = 3.4, MAX_SIDE = 3.0, MAX_BACK = 2.6;   // m/s: frente, lado, ré (a ré é mais lenta, como no jogo de verdade)
 const NO_EV: Ev[] = [];
 interface Ev { clip: string; kind: string; key: string; prep: number; x1: number; z1: number; shift: number; need: number; dy: number; }
-interface Cand { clip: string; kind: string; key: string; prep: number; cx: number; cy: number; cz: number; }
+export interface Cand { clip: string; kind: string; key: string; prep: number; cx: number; cy: number; cz: number; }
 const DEFAULT_CAND: Cand = { clip: "", kind: "ground", key: "fh_din", prep: 0.55, cx: -0.3, cy: 1.2, cz: 0.5 };   // se os clipes do vídeo não carregaram
 /** saque: a bola sai da mão esquerda em `rel` (s do clipe) e sobe em arco até o ponto de contato com a raquete (mão em h*, contato em c*, mundo) */
 interface Toss { rel: number; hx: number; hy: number; hz: number; cx: number; cy: number; cz: number; }
 interface Swing { toss?: Toss; startT: number; endT: number; clip: string; s: number; contactT: number; t: number; duration: number; x0: number; z0: number; x1: number; z1: number; contacted: boolean; kind: string; plan?: number[]; err: number; whiff: boolean; msg?: string; preview?: boolean; }
 /** próxima rebatida: onde a jogadora deve estar, quando a bola chega e quando apertar GOLPE (tempos no relógio do jogo) */
 interface Cue { arrival: number; press: number; prep: number; x1: number; z1: number; smp: Sample; clip: string; kind: string; key: string; shift: number; cost: number; }
-export interface CueView { ttp: number; reach: boolean; win: number; label: string; }
+export interface CueView { ttp: number; reach: boolean; win: number; label: string; out?: boolean; }
 /** visualizador de golpes (galeria): o que a tela mostra */
 export interface ViewState { clip: string; label: string; n: number; total: number; speed: number; paused: boolean; }
 interface Viewer { clip: string; speed: number; paused: boolean; wait: number; prev: { yaw: number; pitch: number; dist: number }; }
 // tempo (s) do começo do golpe ao contato vem de PREP (rig.ts); a bola chega PREP depois do aperto ideal. O clipe é acelerado/retardado
 // (S_MIN..S_MAX) para o contato cair na bola quando o aperto vem um pouco cedo/tarde; fora disso o golpe passa em branco
-const S_MIN = 0.62, S_MAX = 1.9, DY_MAX = 0.2, NEED_MAX = 2.7, NEED_OK = 1.7, NEED_RELAX = 2.3;   // NEED: corrida (m/s) exigida para chegar ao ponto a tempo
-const SERVE_CLIP = "v_saque_1", TOSS_REL = 0.42, TOSS_APEX = 0.85;   // saque do vídeo; s do clipe em que a bola sai da mão; quanto o arco da bola passa acima da mão/contato (m)
+export const S_MIN = 0.62, S_MAX = 1.9, DY_MAX = 0.2, NEED_MAX = 2.7, NEED_OK = 1.7, NEED_RELAX = 2.3;   // NEED: corrida (m/s) exigida para chegar ao ponto a tempo
 const HOME = { x: 0, z: 0 }, WALK_HOME = 2.0;   // posição de saque (atrás da linha de fundo, no centro) e velocidade com que ela volta andando depois do ponto (m/s)
-const FOLLOW = 0.42;   // s de clipe depois do contato em que a jogadora ainda fica presa no golpe (depois volta a correr)
 const WIN = { perfect: 0.07, good: 0.16 };   // erro de tempo (s) × Ajustes › janela
-// golpes do vídeo que o treino sorteia (frequência relativa); o saque só é usado no saque
-const INTENT_W: Record<string, number> = { fh_din: 3, fh_est: 3, bh_din: 3, bh_est: 3, anomalo: 1.5, rainbow: 1.5, band_fh: 1.5, band_bh: 1.5, arco: 1, smash: 2, gancho: 1.2, veronica: 1.2, espeto: 1.2 };
 export interface LogEntry { t: number; type: string; [k: string]: unknown; }
 
 export class Game {
@@ -52,8 +51,10 @@ export class Game {
   rally = 0; record = loadRecord(); deadTimer = 0; time = 0; serveTime = 0;
   react = 0; reactT = 0; private walkAt = 0.5; private recBeaten = false;   // reação ao fim do ponto (0 nada, 1 suspiro, 2 comemoração), tempo desde o ponto e quando ela começa a voltar ao saque
   swing: Swing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
-  cue: Cue | null = null; private lastCue: Cue | null = null; marker: CueMarker; perfects = 0;
+  cue: Cue | null = null; cueOut = false; private lastCue: Cue | null = null; marker: CueMarker; perfects = 0;
   wallFx: WallFx; dust: Dust;
+  match: Match | null = null; onScore: (v: ScoreView | null) => void = () => {}; onMatchEnd: (winner: Side, v: ScoreView) => void = () => {}; private matchEnded = false;
+  mode: "train" | "match" = "train"; opp: Opponent | null = null; private envTrain: THREE.Group; private envMatch: THREE.Group; private shadowMat: THREE.Material;   // treino na parede ou partida contra a adversária
   fx: PoseFX | null = null; private fxBall = new THREE.Vector3();   // vida do personagem: olhar na bola, respiração, inclinação
   stamina = new Stamina(); private tired = false; private staSent = -1;   // fôlego: gasta correndo; sem fôlego a corrida fica mais lenta
   onStamina: (v: number, mul: number) => void = () => {};
@@ -73,9 +74,9 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    buildEnvironment(this.scene, import.meta.env.BASE_URL); this.foot = new Footprints(this.scene);
+    this.envTrain = buildEnvironment(this.scene, import.meta.env.BASE_URL).train; this.envMatch = buildMatchCourt(this.scene); this.foot = new Footprints(this.scene);
     const bt = blobTexture();
-    const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false });
+    const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false }); this.shadowMat = bm;
     this.playerShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), bm); this.playerShadow.rotation.x = -Math.PI / 2; this.playerShadow.position.y = 0.01; this.scene.add(this.playerShadow);
     this.ballShadow = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), bm); this.ballShadow.rotation.x = -Math.PI / 2; this.ballShadow.position.y = 0.012; this.scene.add(this.ballShadow);
     this.ballMesh = new THREE.Group(); this.ballMesh.add(new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 20, 14), new THREE.MeshStandardMaterial({ color: 0xd8f23a, emissive: 0x6a7a10, roughness: 0.7 }))); this.scene.add(this.ballMesh);
@@ -96,7 +97,53 @@ export class Game {
     this.rig.faceAssist = S.faceAssist; this.rig.applyRacketTransform(S, S.playerScale); this.rig.findPeaks();
     this.applySettings();
     this.fx = new PoseFX(this.rig); this.foot.bind(this.rig.model); this.animate(0); this.rig.root.updateMatrixWorld(true); this.foot.calibrate();
+    this.opp = new Opponent(this.rig, this.scene, this.shadowMat);
     this.setCamera(true);
+  }
+
+  /** treino na parede ou partida contra a adversária: troca cenário, física (parede × rede) e posições */
+  setMode(mode: "train" | "match"): void {
+    this.mode = mode; this.viewClose(); this.intent = null;
+    const m = mode === "match"; if (!m) { this.match = null; this.onScore(null); }
+    this.envTrain.visible = !m; this.envMatch.visible = m; this.opp?.setVisible(m);
+    Object.assign(this.tun, m ? { wallZ: 99, net: { z: MATCH.netZ, h: NET_H, w: 2 * MATCH.halfW + 0.6 } } : { wallZ: COURT.wallZ, net: undefined });
+    this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false;
+    this.rig.root.position.set(0, 0, 0); this.vx = this.vz = 0; this.foot.clear();
+    if (m) this.opp?.place(0, MATCH.len);
+    this.setCamera(true); this.onHud();
+  }
+
+  /** onde ela espera o ponto: no treino, o centro atrás da linha de fundo; na partida, depende de quem saca */
+  homePos(): { x: number; z: number } { return this.match ? { x: 0, z: this.match.homeZ(0) } : HOME; }
+
+  /** começa uma partida contra a adversária (formato e nível); quem saca primeiro é a jogadora */
+  startMatch(fmtId = "rapida", lvlId = "medio"): void {
+    if (!this.opp) return;
+    this.setMode("match"); this.matchEnded = false;
+    this.match = new Match(this, this.opp, FORMATS[fmtId] ?? FORMATS.rapida, LEVELS[lvlId] ?? LEVELS.medio, 0);
+    this.stamina.reset(); this.opp.stamina.reset(); this.onScore(this.match.view());
+    this.nextPoint(); this.onHud();
+  }
+  endMatch(): void { this.setMode("train"); }
+
+  /** próximo ponto da partida: quem saca é decidido pelo placar (a adversária saca sozinha; a jogadora, pelo botão ou no automático) */
+  private nextPoint(): void {
+    const m = this.match; if (!m) return;
+    this.state = "wait"; this.react = 0; this.ballMesh.visible = false; this.ballShadow.visible = false; this.cue = null; this.lastCue = null; this.onScore(m.view());
+    if (m.over !== null) return;
+    if (m.score.server === 0) { if (S.autoServe) this.serve(); } else m.startServe();
+  }
+
+  /** fim do ponto na partida: placar, reações e volta aos lugares */
+  endPoint(winner: Side, reason: string, r: PointResult): void {
+    const m = this.match; if (!m || (this.state !== "rally" && this.state !== "serve")) return;
+    if (this.swing && !this.swing.contacted) this.swing = null;
+    this.state = "dead"; this.ball.ret = null;
+    this.react = winner === 0 ? (this.rally >= 8 || r.game !== undefined ? 2 : 0) : this.rally < 3 ? 1 : 0; this.reactT = 0; this.deadTimer = [1.6, 1.9, 2.6][this.react]; this.walkAt = [0.7, 1.1, 1.9][this.react];
+    this.stamina.restore(0.25); this.opp?.stamina.restore(0.25);
+    const v = m.view(), pts = `${v.points[0]} – ${v.points[1]}`;
+    this.onToast(`${winner === 0 ? "Ponto!" : "Ponto da adversária"} — ${reason}`, r.match !== undefined ? "Fim da partida" : r.set !== undefined ? "Set!" : r.game !== undefined ? `Game ${v.games[0]}–${v.games[1]}` : `${pts} · rali ${this.rally}`);
+    this.emit("point", { winner, reason, rally: this.rally, games: v.games, points: v.points }); this.onScore(v); this.onHud();
   }
 
   applySettings(recalc = true): void {
@@ -112,7 +159,7 @@ export class Game {
     this.camera.fov = w / h < 0.8 ? 68 : 55; this.camera.updateProjectionMatrix();
   }
 
-  private emit(type: string, extra: Record<string, unknown> = {}): void {
+  emit(type: string, extra: Record<string, unknown> = {}): void {
     this.log.push({ t: +this.time.toFixed(3), type, ...extra }); if (this.log.length > 400) this.log.shift();
   }
 
@@ -122,6 +169,7 @@ export class Game {
     const p = r.root.position, dur = r.durations.get(clip) ?? 2, ct = r.ct(clip, S.contactOffset), h = r.measureObj(clip, TOSS_REL, r.leftHand);
     this.swing = { clip, s: S.timeScale, contactT: ct, t: 0, startT: 0, endT: Math.min(dur - 0.02, ct + FOLLOW + 0.15), duration: dur, x0: p.x, z0: p.z, x1: p.x, z1: p.z, contacted: false, kind: "serve", err: 0, whiff: false,
       toss: { rel: TOSS_REL, hx: p.x + h.x, hy: h.y, hz: p.z + h.z, cx: p.x + cl.x, cy: cl.y, cz: p.z + cl.z } };
+    if (this.match) this.match.serveBy = 0;
     this.swingAct = act; this.vx = 0; this.vz = 0; this.cue = null; this.lastCue = null; this.state = "serve"; this.rally = 0; this.react = 0; this.recBeaten = false; this.foot.clear();
     Object.assign(this.ball, newBall(), { x: p.x, y: 1.5, z: p.z });
     this.ballMesh.visible = true; this.ballShadow.visible = true; this.info = ""; this.emit("serve", { animated: true }); this.onHud(); return true;
@@ -140,6 +188,7 @@ export class Game {
 
   serve(): void {
     if (!this.rig.mixer) return;
+    if (this.match && (this.match.score.server !== 0 || this.match.over !== null)) return;   // na partida a adversária saca no turno dela
     this.viewClose();
     if (this.swing && !this.swing.contacted) this.swing = null;
     if (this.serveStart()) return;
@@ -161,17 +210,17 @@ export class Game {
   }
 
   /** fração da velocidade máxima que o fôlego atual permite (1 = descansada) */
-  private speedMul(): number { return S.stamina ? this.stamina.mul() : 1; }
+  speedMul(): number { return S.stamina ? this.stamina.mul() : 1; }
 
   // ---------- tempo e posição ----------
-  private reachR(): number { return S.assist * (S.auto ? 1.6 : 1); }   // raio em que o golpe ainda leva a jogadora ao ponto certo
+  reachR(): number { return S.assist * (S.auto ? 1.6 : 1); }   // raio em que o golpe ainda leva a jogadora ao ponto certo
 
   /** golpe do vídeo se o clipe existe; senão o de mocap de tênis */
   private pick(clip: string, fallback: string): string { return this.rig.contactLocal.has(clip) ? clip : fallback; }
 
   /** golpes do vídeo (sem o saque) com o que precisa para avaliar uma bola: preparo e ponto de contato; recalculado quando o rig é recalibrado */
   private candAll: Cand[] | null = null; private candBy = new Map<string, Cand[]>();
-  private candList(only?: string): Cand[] {
+  candList(only?: string): Cand[] {
     if (!this.candAll) {
       this.candAll = []; this.candBy.clear();
       for (const st of STROKES) {
@@ -203,7 +252,7 @@ export class Game {
 
   /** abre a galeria no golpe clip: interrompe o rali (a bola some), põe a câmera de frente e repete o golpe do vídeo em ciclo */
   viewStroke(clip: string): boolean {
-    if (!this.rig.mixer || !this.rig.actions.has(clip)) return false;
+    if (!this.rig.mixer || !this.rig.actions.has(clip) || this.match) return false;   // na partida a galeria não abre
     if (!this.viewer) {
       this.viewer = { clip, speed: 1, paused: false, wait: 0, prev: { ...this.cam } };
       this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false;
@@ -237,10 +286,10 @@ export class Game {
   recenter(): void { this.cam.yaw = 0; this.cam.pitch = CAM_PITCH; }
 
   /** tempo (s) que a jogadora ainda fica parada no fim do golpe em andamento (0 sem golpe): não dá para correr nesse intervalo */
-  private lockLeft(): number { const sw = this.swing; return sw ? Math.max(0, (sw.endT - sw.t) / sw.s) : 0; }
+  lockLeft(): number { const sw = this.swing; return sw ? Math.max(0, (sw.endT - sw.t) / sw.s) : 0; }
 
   /** rebatidas possíveis na amostra smp para quem está em (px,pz): ponto do chão, velocidade necessária para chegar a tempo (need, m/s); lock = tempo parada antes de poder correr */
-  private evalSample(smp: Sample, px: number, pz: number, lock = 0, only?: string): Ev[] {
+  evalSample(smp: Sample, px: number, pz: number, lock = 0, only?: string): Ev[] {
     if (smp.vz >= -0.2 || smp.bounces > 0 || smp.y < 0.12 || smp.y > 2.7) return NO_EV;   // bola viva: só no ar, antes de tocar a areia
     const out: Ev[] = [];
     const list = this.candList(only), cands = list.length ? list : (only ? [] : this.mocapCands(smp));
@@ -248,7 +297,7 @@ export class Game {
     for (const c of cands) {
       const prep = c.prep / ts; if (smp.t < prep * 0.55) continue;
       const dy = Math.abs(smp.y - c.cy); if (dy > DY_MAX) continue;
-      const x1 = smp.x - c.cx, z1 = smp.z - c.cz; if (x1 < -4.6 || x1 > 4.6 || z1 < -5 || z1 > 6.5) continue;
+      const x1 = smp.x - c.cx, z1 = smp.z - c.cz; if (x1 < -4.6 || x1 > 4.6 || z1 < -5 || z1 > (this.match ? MATCH.netZ - 0.7 : 6.5)) continue;
       const shift = Math.hypot(x1 - px, z1 - pz);
       out.push({ clip: c.clip, kind: c.kind, key: c.key, prep, x1, z1, shift, dy, need: Math.max(0, shift - reach) / Math.max(0.05, smp.t - lock - prep - 0.1) });
     }
@@ -261,17 +310,20 @@ export class Game {
     this.cue = null; if (this.state !== "rally" || (this.swing && !this.swing.contacted)) return;
     const p = this.rig.root.position, prev = this.lastCue, lock = this.lockLeft(), last = this.recent[this.recent.length - 1];
     let best: Cue | null = null, keep: Cue | null = null, near: Cue | null = null; const needMax = NEED_MAX * (0.5 + 0.5 * this.speedMul());
+    let lastS: Sample | null = null;
     for (const smp of predict(this.ball, this.tun, 5, 1 / 120, true)) {
+      lastS = smp;
       for (const c of this.evalSample(smp, p.x, p.z, lock)) {
         const mk = (cost: number): Cue => ({ arrival: this.time + smp.t, press: this.time + smp.t - c.prep, prep: c.prep, x1: c.x1, z1: c.z1, smp, clip: c.clip, kind: c.kind, key: c.key, shift: c.shift, cost });
         if (prev && prev.clip === c.clip && Math.abs(prev.arrival - (this.time + smp.t)) < 0.1 && this.time < prev.arrival && c.need <= needMax * 1.3) { const k = mk(Math.abs(prev.arrival - (this.time + smp.t))); if (!keep || k.cost < keep.cost) keep = k; }
         if (c.need > needMax) { const k = mk(c.need); if (!near || k.cost < near.cost) near = k; continue; }
-        const cost = 0.35 * smp.t + 1.6 * c.need / NEED_MAX + 0.12 * Math.max(0, c.z1 - 4.6) + 1.2 * c.dy + (smp.t < c.prep + lock ? 1 : 0)
+        const cost = 0.35 * smp.t + 1.6 * c.need / NEED_MAX + (this.match ? 0 : 0.12 * Math.max(0, c.z1 - 4.6)) + 1.2 * c.dy + (smp.t < c.prep + lock ? 1 : 0)
           - (c.key === this.intent ? 1.5 : 0) + (c.key === last ? 0.3 : 0);                                                              // prefere o golpe que a bola foi preparada para ter; evita repetir o último
         if (!best || cost < best.cost) best = mk(cost);
       }
     }
     this.cue = keep ?? best ?? near; if (this.cue) this.lastCue = this.cue;
+    this.cueOut = !!this.match && !!lastS && lastS.y <= BALL_R + 0.03 && !inCourt(lastS.x, lastS.z) && lastS.z < MATCH.netZ;   // partida: a bola vai cair fora do meu lado (deixa passar e o ponto é meu)
   }
 
   /** sorteia o próximo golpe do treino (varia: não repete os 2 últimos) entre os do vídeo, com mais peso nos golpes de base */
@@ -374,7 +426,7 @@ export class Game {
     if (sw.kind !== "serve" && gap > S.hitRadius) { this.onToast(sw.msg ?? (sw.err > 0 ? "Cedo!" : "Tarde!")); this.onHud(); return; }
     b.x = H.x; b.y = Math.max(H.y, BALL_R); b.z = H.z;                       // a bola encosta na face da raquete
     if (sw.kind === "serve") {   // saque: a bola vai para a parede e o rali começa
-      this.launch(THREE.MathUtils.clamp(H.x + (Math.random() - 0.5) * 2.4, -2.5, 2.5), S.ballSpeed * 1.05, false);
+      if (this.match) this.match.playerShot(H, sw.clip, 1, this.input.right * -1, true); else this.launch(THREE.MathUtils.clamp(H.x + (Math.random() - 0.5) * 2.4, -2.5, 2.5), S.ballSpeed * 1.05, false);
       this.state = "rally"; this.rally = 0; this.serveTime = this.time; this.lastCue = null; this.onToast("Saque!"); this.onHud(); return;
     }
     const e = Math.abs(sw.err) / S.timing, q = e <= WIN.perfect ? 2 : e <= WIN.good ? 1 : 0;   // 2 perfeito, 1 bom, 0 fraco (cedo/tarde)
@@ -384,25 +436,28 @@ export class Game {
     const smash = sw.kind === "smash" || sw.kind === "over";
     const speed = S.ballSpeed * (smash ? 1.25 : sw.kind === "volley" ? 0.9 : 1) * (q === 2 ? 1.12 : q === 1 ? 1 : 0.86);
     const st = strokeOf(sw.clip); if (st) { this.recent.push(st.key); if (this.recent.length > 4) this.recent.shift(); }   // antes de lançar: a próxima bola não repete este golpe
-    this.launch(tx, speed, smash);
+    if (this.match) this.match.playerShot(H, sw.clip, q, aim); else this.launch(tx, speed, smash);
     this.rally++; if (q === 2) this.perfects++; if (this.rally > this.record) { this.record = this.rally; saveRecord(this.record); this.recBeaten = this.rally >= 6; }
     this.onToast(q === 2 ? "Perfeito!" : q === 1 ? "Bom!" : sw.err > 0 ? "Cedo!" : "Tarde!", st?.label); this.onHud();
   }
 
   private advance(dt: number): void {
-    const sw = this.swing; let rem = dt;
-    const sim = (d: number) => {
-      let r = d; while (r > 1e-6) { const h = Math.min(r, 1 / 120); this.handleEvent(stepBall(this.ball, h, this.tun)); r -= h; }
-    };
-    if (sw && !sw.contacted) {
-      const left = (sw.contactT - sw.t) / sw.s;
-      if (left <= dt) { sim(Math.max(left, 0)); sw.t = sw.contactT; sw.contacted = true; this.doContact(sw); rem = dt - Math.max(left, 0); sw.t += rem * sw.s; sim(rem); return; }
+    const sim = (d: number) => { let r = d; while (r > 1e-6) { const h = Math.min(r, 1 / 120); this.handleEvent(stepBall(this.ball, h, this.tun)); r -= h; } };
+    const step = (d: number) => { sim(d); if (this.swing) this.swing.t += d * this.swing.s; const o = this.match?.opp.swing; if (o) o.t += d * o.s; };
+    let rem = dt;
+    for (let n = 0; n < 4; n++) {   // contatos (da jogadora e da adversária) no instante exato: a bola anda até lá, bate e continua
+      const sw = this.swing, m = this.match, tp = sw && !sw.contacted ? Math.max(0, (sw.contactT - sw.t) / sw.s) : Infinity, to = m ? m.timeToContact() : Infinity, next = Math.min(tp, to);
+      if (!(next <= rem)) break;
+      step(next); rem -= next;
+      if (tp <= to) { sw!.t = sw!.contactT; sw!.contacted = true; this.doContact(sw!); } else { const o = m!.opp.swing!; o.t = o.contactT; o.contacted = true; m!.contact(o); }
+      if (this.state !== "rally") return;
     }
-    sim(rem); if (sw) sw.t += dt * sw.s;
+    step(rem);
   }
 
   private handleEvent(ev: string | null): void {
     if (!ev) return;
+    if (this.match) { if (this.state === "rally") { if (ev === "sand") this.match.onSand(); else if (ev === "net") this.match.onNet(); } return; }   // partida: o 1º toque na areia ou a rede decide o ponto
     if (ev === "wall") { this.wallFx.spawn(this.ball.x, this.ball.y, this.tun.wallZ - 0.03); this.emit("wall", { z: +this.ball.z.toFixed(2), y: +this.ball.y.toFixed(2) }); if (this.state === "rally" && this.ball.y < NET_H - 0.03) this.kill("Na rede"); }
     if (ev === "wallout" && this.state === "rally") this.kill("Fora da parede");
     if (ev === "sand" && this.state === "rally") this.kill(this.ball.vz > 0 ? "Bola curta" : "Quicou na areia");   // bola viva: o 1º toque na areia encerra o ponto
@@ -420,7 +475,10 @@ export class Game {
     dt = Math.min(dt, 0.05); this.time += dt; const root = this.rig.root; const p = root.position;
     if (this.state === "dead") {
       this.deadTimer -= dt; this.reactT += dt;
-      if (this.deadTimer <= 0 && (!S.autoServe || Math.hypot(p.x - HOME.x, p.z - HOME.z) < 0.25 || this.reactT > 5)) { this.state = "wait"; this.react = 0; if (S.autoServe) this.serve(); }   // saque automático: só depois de voltar à posição de saque
+      if (this.match) {   // partida: as duas voltam aos lugares e o ponto seguinte começa (ou acaba a partida)
+        if (this.match.over !== null) { if (this.deadTimer <= -1.2 && !this.matchEnded) { this.matchEnded = true; this.onMatchEnd(this.match.over, this.match.view()); } }
+        else if (this.deadTimer <= 0 && ((Math.hypot(p.x - this.homePos().x, p.z - this.homePos().z) < 0.3 || !S.autoServe) && this.match.atHome() || this.reactT > 6)) this.nextPoint();
+      } else if (this.deadTimer <= 0 && (!S.autoServe || Math.hypot(p.x - HOME.x, p.z - HOME.z) < 0.25 || this.reactT > 5)) { this.state = "wait"; this.react = 0; if (S.autoServe) this.serve(); }   // saque automático: só depois de voltar à posição de saque
     }
 
     if (!this.swing && !this.viewer) {
@@ -428,26 +486,28 @@ export class Game {
       const mx = -this.input.right * cyw + this.input.fwd * syw, mz = this.input.fwd * cyw + this.input.right * syw;
       const sm = this.speedMul(); let tx = mx * MAX_SIDE * sm, tz = mz * (mz >= 0 ? MAX_SPEED : MAX_BACK) * sm; const k = Math.min(1, 10 * dt);
       if (this.state === "dead" && S.autoServe && this.reactT > this.walkAt && Math.hypot(this.input.right, this.input.fwd) < 0.2) {   // depois do ponto volta andando à posição de saque
-        const dx = HOME.x - p.x, dz = HOME.z - p.z, d = Math.hypot(dx, dz), sp = Math.min(WALK_HOME * sm, d * 2.5); tx = d > 0.04 ? dx / d * sp : 0; tz = d > 0.04 ? dz / d * sp : 0;
+        const hm = this.homePos(), dx = hm.x - p.x, dz = hm.z - p.z, d = Math.hypot(dx, dz), sp = Math.min(WALK_HOME * sm, d * 2.5); tx = d > 0.04 ? dx / d * sp : 0; tz = d > 0.04 ? dz / d * sp : 0;
       }
       this.vx += (tx - this.vx) * k; this.vz += (tz - this.vz) * k;
-      p.x = THREE.MathUtils.clamp(p.x + this.vx * dt, -4.6, 4.6); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, -5, 6.5);
+      p.x = THREE.MathUtils.clamp(p.x + this.vx * dt, -4.6, 4.6); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, -5, this.match ? MATCH.netZ - 0.7 : 6.5);
     }
 
     if (S.stamina) {
       this.stamina.update(dt, Math.hypot(this.vx, this.vz), this.state === "dead" || this.state === "wait" || !!this.viewer);
       if (!this.tired && this.stamina.value < 0.12) { this.tired = true; this.onToast("Sem fôlego!"); } else if (this.tired && this.stamina.value > 0.4) this.tired = false;
     } else this.stamina.reset();
+    if (this.match) this.match.update(dt);
     if (this.state === "rally") {
       this.advance(dt);
       const b = this.ball;
-      if (b.z < p.z - 2.5 && b.vz < 0) this.kill("Passou");
+      if (this.match) { if (this.time - this.serveTime > 120 && this.state === "rally") this.match.pointEnd(1, "Tempo"); }
+      else if (b.z < p.z - 2.5 && b.vz < 0) this.kill("Passou");
       else if (this.time - this.serveTime > 180) this.kill("Tempo");
       if (this.state === "rally") {
         this.computeCue();
-        if (S.auto && !this.swing && this.cue && this.time >= this.cue.press && this.cue.shift <= this.reachR()) this.manualSwing();   // modo fácil: o jogo aperta na hora
+        if (S.auto && !this.swing && this.cue && !this.cueOut && this.time >= this.cue.press && this.cue.shift <= this.reachR()) this.manualSwing();   // modo fácil: o jogo aperta na hora
       } else this.cue = null;
-    } else if (this.state === "serve") this.serveStep(dt);
+    } else if (this.state === "serve") { if (!(this.match && this.match.serveBy === 1)) this.serveStep(dt); else this.cue = null; }
     else { this.cue = null; if (this.swing) this.swing.t += dt * this.swing.s; if (this.state === "dead") for (let r = dt; r > 1e-6; r -= 1 / 120) stepBall(this.ball, Math.min(r, 1 / 120), this.tun); }   // depois do ponto a bola ainda quica e rola
 
     const sw = this.swing;
@@ -457,6 +517,7 @@ export class Game {
       if (sw.t >= sw.endT) { this.swing = null; if (this.viewer) this.viewer.wait = 0.7; }
     } else if (this.viewer) { this.viewer.wait -= dt; if (this.viewer.wait <= 0) this.startView(); }   // galeria: repete o golpe depois de uma pausa
     this.wallFx.update(dt); this.dust.update(dt); this.animate(dt);
+    if (this.mode === "match" && this.opp) this.opp.animate(dt, this.time, (this.state === "rally" || this.state === "serve") && this.ballMesh.visible ? this.ball : null);
     this.rig.root.updateMatrixWorld(true);
     this.foot.enabled = S.footprints; this.foot.life = S.footLife; this.foot.update(dt, this.swing ? 0 : Math.hypot(this.vx, this.vz));
     this.syncVisuals(dt);
@@ -504,7 +565,7 @@ export class Game {
     this.ballMesh.position.set(b.x, b.y, b.z); this.ballShadow.position.set(b.x, 0.012, b.z);
     this.ballShadow.scale.setScalar(Math.max(0.4, 1.2 - b.y * 0.25));
     this.playerShadow.position.set(p.x, 0.01, p.z);
-    const c = this.cue, v = c ? { ttp: c.press - this.time, reach: c.shift <= this.reachR(), win: WIN.good * S.timing, label: strokeOf(c.clip)?.label ?? "" } : null;
+    const c = this.cue, v = c ? { ttp: c.press - this.time, reach: c.shift <= this.reachR(), win: WIN.good * S.timing, label: this.cueOut ? "Fora! Deixa passar" : strokeOf(c.clip)?.label ?? "", out: this.cueOut } : null;
     this.marker.update(c && v ? { x: c.x1, z: c.z1, ...v } : null, this.ballMesh.position); this.onCue(v);
     const sta = this.stamina.value; if (Math.abs(sta - this.staSent) > 0.004) { this.staSent = sta; this.onStamina(sta, this.stamina.mul()); }
     this.setCamera(false, dt);

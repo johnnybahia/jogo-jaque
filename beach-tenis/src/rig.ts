@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { cleanWrists, WristTwist } from "./wrist";
 import { applyReadyPose } from "./ready";
@@ -94,7 +95,25 @@ export class Rig {
       rk.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.frustumCulled = false; } });
       this.racket.add(rk.scene); this.head.position.set(0, 0.25, 0); this.racket.add(this.head);
     } catch { this.buildRacket(); }
+    this.racket.name = "bt_racket"; this.head.name = "bt_racket_head";
     this.hand.add(this.racket);
+  }
+
+  /** 2ª instância (a adversária): copia o modelo com a raquete na mão e usa os mesmos clipes e medidas (contato, picos, locomoção); mixer, pesos e dedos são próprios */
+  cloneInstance(): Rig {
+    const r = new Rig();
+    r.meta = this.meta; r.durations = this.durations; r.peak = this.peak; r.presetQ.copy(this.presetQ); r.faceAssist = this.faceAssist; r.grip = this.grip;
+    for (const [k, v] of this.contactLocal) r.contactLocal.set(k, v.clone());
+    r.model = cloneSkinned(this.model) as THREE.Group; r.root.add(r.model);
+    const by = (n: string) => r.model.getObjectByName(n) as THREE.Object3D;
+    r.hand = by(this.hand!.name); r.leftHand = this.leftHand ? by(this.leftHand.name) : null;
+    r.racket = r.hand.getObjectByName("bt_racket") as THREE.Group; r.head = r.racket.getObjectByName("bt_racket_head") as THREE.Object3D;
+    r.fingers = this.fingers.map((f) => ({ bone: by(f.bone.name) as THREE.Bone, rest: f.rest.clone(), axis: f.axis.clone(), ang: f.ang }));
+    r.twist = this.twist ? this.twist.cloneFor(r.model) : null;
+    r.mixer = new THREE.AnimationMixer(r.model);
+    for (const [name, a] of this.actions) { const c = r.mixer.clipAction(a.getClip()); c.play(); c.timeScale = 0; c.setEffectiveWeight(0); c.time = 0; r.actions.set(name, c); }
+    r.loco.clips = this.loco.clips; r.loco.ready = this.loco.ready;
+    return r;
   }
 
   private buildRacket(): void {

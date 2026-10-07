@@ -1,6 +1,7 @@
 import * as THREE from "three";
 
 export const COURT = { wallZ: 11, wallW: 6, wallH: 3 };
+export const MATCH = { netZ: 8, halfW: 4, len: 16 };   // quadra de partida (m): rede no meio de 16 m; lado da jogadora z ∈ [0, 8], da adversária [8, 16]; largura 8 m
 export const NET_H = 1.7;   // altura da rede de beach tênis (m): o risco da parede; a bola precisa bater na parede acima dele
 
 function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
@@ -8,7 +9,8 @@ function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => 
   draw(cv.getContext("2d")!); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 }
 
-export function buildEnvironment(scene: THREE.Scene, base: string): void {
+export function buildEnvironment(scene: THREE.Scene, base: string): { train: THREE.Group } {
+  const train = new THREE.Group(); scene.add(train);
   scene.background = new THREE.Color(0x9fd3f2); scene.fog = new THREE.Fog(0xcfe8f5, 22, 70);
   scene.add(new THREE.HemisphereLight(0xffffff, 0xe0c890, 1.25));
   const sun = new THREE.DirectionalLight(0xfff2d6, 1.9); sun.position.set(-6, 12, -8); scene.add(sun);
@@ -41,16 +43,40 @@ export function buildEnvironment(scene: THREE.Scene, base: string): void {
     c.fillStyle = "#1b6fb4"; c.font = "bold 22px sans-serif"; c.fillText("REDE 1,70 m", 14, ny - 10);
   });
   const face = new THREE.Mesh(new THREE.PlaneGeometry(COURT.wallW, COURT.wallH), new THREE.MeshStandardMaterial({ map: faceTex, roughness: 0.9 }));
-  face.position.set(0, COURT.wallH / 2, COURT.wallZ - 0.01); face.rotation.y = Math.PI; scene.add(face);
+  face.position.set(0, COURT.wallH / 2, COURT.wallZ - 0.01); face.rotation.y = Math.PI; train.add(face);
   const body = new THREE.Mesh(new THREE.BoxGeometry(COURT.wallW + 0.3, COURT.wallH + 0.15, 0.4), new THREE.MeshStandardMaterial({ color: 0x8a8f96 }));
-  body.position.set(0, (COURT.wallH + 0.15) / 2, COURT.wallZ + 0.2); scene.add(body);
+  body.position.set(0, (COURT.wallH + 0.15) / 2, COURT.wallZ + 0.2); train.add(body);
 
   // linhas de referência na areia (faixa de saque e eixo central)
   const line = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
-  const l1 = new THREE.Mesh(new THREE.PlaneGeometry(0.06, COURT.wallZ + 4), line); l1.rotation.x = -Math.PI / 2; l1.position.set(0, 0.005, (COURT.wallZ - 4) / 2); scene.add(l1);
-  for (const x of [-4.5, 4.5]) { const l = l1.clone(); l.position.x = x; scene.add(l); }
+  const l1 = new THREE.Mesh(new THREE.PlaneGeometry(0.06, COURT.wallZ + 4), line); l1.rotation.x = -Math.PI / 2; l1.position.set(0, 0.005, (COURT.wallZ - 4) / 2); train.add(l1);
+  for (const x of [-4.5, 4.5]) { const l = l1.clone(); l.position.x = x; train.add(l); }
+  return { train };
 }
 
 export function blobTexture(): THREE.CanvasTexture {
   return canvasTex(64, 64, (c) => { const g = c.createRadialGradient(32, 32, 2, 32, 32, 30); g.addColorStop(0, "rgba(0,0,0,0.55)"); g.addColorStop(1, "rgba(0,0,0,0)"); c.fillStyle = g; c.fillRect(0, 0, 64, 64); });
+}
+
+/** quadra de partida: linhas de 16 × 8 m e rede de 1,70 m no meio (z = MATCH.netZ), com fita branca e postes */
+export function buildMatchCourt(scene: THREE.Scene): THREE.Group {
+  const g = new THREE.Group(); g.visible = false; scene.add(g);
+  const line = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  const strip = (w: number, l: number, x: number, z: number) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l), line); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.006, z); g.add(m); };
+  const W = MATCH.halfW, L = MATCH.len, T = 0.07;
+  strip(2 * W + T, T, 0, 0); strip(2 * W + T, T, 0, L); strip(T, L + T, -W, L / 2); strip(T, L + T, W, L / 2);   // fundo, fundo, laterais
+  strip(2 * W, T * 0.6, 0, MATCH.netZ);                                                                       // projeção da rede
+  const tex = canvasTex(512, 64, (c) => {
+    c.fillStyle = "rgba(20,24,30,0.18)"; c.fillRect(0, 0, 512, 64);
+    c.strokeStyle = "rgba(15,18,24,0.75)"; c.lineWidth = 1.4;
+    for (let x = 0; x <= 512; x += 8) { c.beginPath(); c.moveTo(x, 6); c.lineTo(x, 64); c.stroke(); }
+    for (let y = 6; y <= 64; y += 8) { c.beginPath(); c.moveTo(0, y); c.lineTo(512, y); c.stroke(); }
+    c.fillStyle = "#ffffff"; c.fillRect(0, 0, 512, 7);
+  });
+  const nw = 2 * W + 0.6, nh = 0.9;
+  const net = new THREE.Mesh(new THREE.PlaneGeometry(nw, nh), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+  net.position.set(0, NET_H - nh / 2, MATCH.netZ); g.add(net);
+  const pole = new THREE.MeshStandardMaterial({ color: 0xd9dde2, roughness: 0.5 });
+  for (const x of [-W - 0.3, W + 0.3]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, NET_H + 0.12, 14), pole); p.position.set(x, (NET_H + 0.12) / 2, MATCH.netZ); g.add(p); }
+  return g;
 }

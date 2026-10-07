@@ -23,3 +23,8 @@ export const STROKES: StrokeInfo[] = [
 export const isVideoClip = (n: string): boolean => n.startsWith("v_");
 const BY_CLIP = new Map<string, StrokeInfo>(STROKES.flatMap((s) => s.clips.map((c) => [c, s] as [string, StrokeInfo])));
 export const strokeOf = (clip: string): StrokeInfo | undefined => BY_CLIP.get(clip);
+
+// golpes do vídeo que o treino/IA sorteia (frequência relativa); o saque só é usado no saque
+export const INTENT_W: Record<string, number> = { fh_din: 3, fh_est: 3, bh_din: 3, bh_est: 3, anomalo: 1.5, rainbow: 1.5, band_fh: 1.5, band_bh: 1.5, arco: 1, smash: 2, gancho: 1.2, veronica: 1.2, espeto: 1.2 };
+export const FOLLOW = 0.42;   // s de clipe depois do contato em que quem bateu ainda fica preso no golpe (depois volta a correr)
+export const SERVE_CLIP = "v_saque_1", TOSS_REL = 0.42, TOSS_APEX = 0.85;   // saque do vídeo; s do clipe em que a bola sai da mão; quanto o arco da bola passa acima da mão/contato (m)
