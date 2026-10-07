@@ -1,6 +1,9 @@
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
 html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#fff;touch-action:none;overscroll-behavior:none}
 #c{position:fixed;inset:0;width:100%;height:100%;display:block}
+#camZone{position:fixed;inset:0;touch-action:none;cursor:grab}
+#camBtns{position:fixed;right:max(10px,env(safe-area-inset-right));top:calc(max(8px,env(safe-area-inset-top)) + 52px);display:flex;flex-direction:column;gap:8px}
+#camBtns button{width:40px;height:40px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:20px;line-height:1;padding:0}
 #hud{position:fixed;top:max(10px,env(safe-area-inset-top));left:12px;font-weight:700;text-shadow:0 1px 3px #000a}
 #rally{font-size:20px}#info{font-size:12px;opacity:.85;margin-top:2px;font-weight:500}
 #gear{position:fixed;top:max(8px,env(safe-area-inset-top));right:10px;width:44px;height:44px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:22px}
@@ -23,6 +26,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 #panel h3{margin:14px 0 6px;font-size:13px;color:#ffb36b;text-transform:uppercase;letter-spacing:.05em}
 #panel label{display:block;margin:7px 0}#panel label span{display:flex;justify-content:space-between}
 #panel input[type=range]{width:100%}
+#panel .chips{display:flex;flex-wrap:wrap;gap:6px}#panel .chips button{margin:0;padding:7px 10px;font-size:12px}
 #panel button{margin:6px 6px 0 0;padding:8px 12px;border-radius:8px;border:0;background:#2a3b4a;color:#fff}
 #pwaBox{margin:8px 0 2px;padding:8px 10px;border-radius:8px;background:#ffffff12;font-size:12px}#pwaBox .mut{opacity:.7}#pwaBox .ok{color:#5be08a}
 #pwaBox .bar{height:5px;border-radius:3px;background:#ffffff22;margin-top:5px;overflow:hidden}#pwaBox .bar i{display:block;height:100%;background:#ff6a00}

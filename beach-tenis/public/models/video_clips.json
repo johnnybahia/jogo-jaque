@@ -1,0 +1,236 @@
+{
+ "v_fh_din_1": {
+  "name": "v_fh_din_1",
+  "kind": "video",
+  "frames": 53,
+  "fps": 30,
+  "duration": 1.7667,
+  "contact_time": 0.8333,
+  "source": "Forehand Dinâmico t=0.83s"
+ },
+ "v_fh_din_2": {
+  "name": "v_fh_din_2",
+  "kind": "video",
+  "frames": 55,
+  "fps": 30,
+  "duration": 1.8333,
+  "contact_time": 0.9,
+  "source": "Forehand Dinâmico t=3.03s"
+ },
+ "v_fh_est_1": {
+  "name": "v_fh_est_1",
+  "kind": "video",
+  "frames": 48,
+  "fps": 30,
+  "duration": 1.6,
+  "contact_time": 0.9,
+  "source": "Forehand Estático t=8.10s"
+ },
+ "v_bh_din_1": {
+  "name": "v_bh_din_1",
+  "kind": "video",
+  "frames": 62,
+  "fps": 30,
+  "duration": 2.0667,
+  "contact_time": 1.1333,
+  "source": "Backhand Dinâmico t=11.53s"
+ },
+ "v_bh_din_2": {
+  "name": "v_bh_din_2",
+  "kind": "video",
+  "frames": 59,
+  "fps": 30,
+  "duration": 1.9667,
+  "contact_time": 1.2,
+  "source": "Backhand Dinâmico t=12.80s"
+ },
+ "v_bh_est_1": {
+  "name": "v_bh_est_1",
+  "kind": "video",
+  "frames": 50,
+  "fps": 30,
+  "duration": 1.6667,
+  "contact_time": 0.9667,
+  "source": "Backhand Estático t=15.13s"
+ },
+ "v_bh_est_2": {
+  "name": "v_bh_est_2",
+  "kind": "video",
+  "frames": 55,
+  "fps": 30,
+  "duration": 1.8333,
+  "contact_time": 0.9,
+  "source": "Backhand Estático t=16.73s"
+ },
+ "v_anomalo_1": {
+  "name": "v_anomalo_1",
+  "kind": "video",
+  "frames": 50,
+  "fps": 30,
+  "duration": 1.6667,
+  "contact_time": 0.9667,
+  "source": "Anômalo t=18.93s"
+ },
+ "v_anomalo_2": {
+  "name": "v_anomalo_2",
+  "kind": "video",
+  "frames": 54,
+  "fps": 30,
+  "duration": 1.8,
+  "contact_time": 1.1,
+  "source": "Anômalo t=20.97s"
+ },
+ "v_smash_1": {
+  "name": "v_smash_1",
+  "kind": "video",
+  "frames": 57,
+  "fps": 30,
+  "duration": 1.9,
+  "contact_time": 1.2,
+  "source": "Smash t=25.70s"
+ },
+ "v_smash_2": {
+  "name": "v_smash_2",
+  "kind": "video",
+  "frames": 59,
+  "fps": 30,
+  "duration": 1.9667,
+  "contact_time": 1.0333,
+  "source": "Smash t=23.10s"
+ },
+ "v_gancho_1": {
+  "name": "v_gancho_1",
+  "kind": "video",
+  "frames": 57,
+  "fps": 30,
+  "duration": 1.9,
+  "contact_time": 1.2,
+  "source": "Gancho t=27.93s"
+ },
+ "v_gancho_2": {
+  "name": "v_gancho_2",
+  "kind": "video",
+  "frames": 62,
+  "fps": 30,
+  "duration": 2.0667,
+  "contact_time": 1.1333,
+  "source": "Gancho t=30.17s"
+ },
+ "v_rainbow_1": {
+  "name": "v_rainbow_1",
+  "kind": "video",
+  "frames": 59,
+  "fps": 30,
+  "duration": 1.9667,
+  "contact_time": 1.0333,
+  "source": "Rainbow/Ventaglio t=32.37s"
+ },
+ "v_rainbow_2": {
+  "name": "v_rainbow_2",
+  "kind": "video",
+  "frames": 57,
+  "fps": 30,
+  "duration": 1.9,
+  "contact_time": 1.1667,
+  "source": "Rainbow/Ventaglio t=34.57s"
+ },
+ "v_band_fh_1": {
+  "name": "v_band_fh_1",
+  "kind": "video",
+  "frames": 64,
+  "fps": 30,
+  "duration": 2.1333,
+  "contact_time": 1.2,
+  "source": "Bandeja Forehand t=36.93s"
+ },
+ "v_band_fh_2": {
+  "name": "v_band_fh_2",
+  "kind": "video",
+  "frames": 64,
+  "fps": 30,
+  "duration": 2.1333,
+  "contact_time": 1.2,
+  "source": "Bandeja Forehand t=37.83s"
+ },
+ "v_band_bh_1": {
+  "name": "v_band_bh_1",
+  "kind": "video",
+  "frames": 59,
+  "fps": 30,
+  "duration": 1.9667,
+  "contact_time": 1.2,
+  "source": "Bandeja Backhand t=42.80s"
+ },
+ "v_band_bh_2": {
+  "name": "v_band_bh_2",
+  "kind": "video",
+  "frames": 61,
+  "fps": 30,
+  "duration": 2.0333,
+  "contact_time": 1.2,
+  "source": "Bandeja Backhand t=40.80s"
+ },
+ "v_veronica_1": {
+  "name": "v_veronica_1",
+  "kind": "video",
+  "frames": 57,
+  "fps": 30,
+  "duration": 1.9,
+  "contact_time": 1.2,
+  "source": "Verônica t=45.07s"
+ },
+ "v_veronica_2": {
+  "name": "v_veronica_2",
+  "kind": "video",
+  "frames": 58,
+  "fps": 30,
+  "duration": 1.9333,
+  "contact_time": 1.2,
+  "source": "Verônica t=47.50s"
+ },
+ "v_espeto_1": {
+  "name": "v_espeto_1",
+  "kind": "video",
+  "frames": 43,
+  "fps": 30,
+  "duration": 1.4333,
+  "contact_time": 0.7333,
+  "source": "Espeto t=49.03s"
+ },
+ "v_espeto_2": {
+  "name": "v_espeto_2",
+  "kind": "video",
+  "frames": 55,
+  "fps": 30,
+  "duration": 1.8333,
+  "contact_time": 0.9,
+  "source": "Espeto t=50.37s"
+ },
+ "v_arco_1": {
+  "name": "v_arco_1",
+  "kind": "video",
+  "frames": 54,
+  "fps": 30,
+  "duration": 1.8,
+  "contact_time": 0.9,
+  "source": "Arco inferior/Leque t=54.60s"
+ },
+ "v_saque_1": {
+  "name": "v_saque_1",
+  "kind": "video",
+  "frames": 55,
+  "fps": 30,
+  "duration": 1.8333,
+  "contact_time": 0.9,
+  "source": "Saque/Serviço t=58.93s"
+ },
+ "v_saque_2": {
+  "name": "v_saque_2",
+  "kind": "video",
+  "frames": 57,
+  "fps": 30,
+  "duration": 1.9,
+  "contact_time": 1.2,
+  "source": "Saque/Serviço t=57.47s"
+ }
+}

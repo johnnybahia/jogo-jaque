@@ -8,8 +8,9 @@ import { Footprints } from "./footprints";
 import { CueMarker } from "./cuemark";
 import { Ball, BALL_R, Sample, Tun, heightAtWall, newBall, predict, stepBall } from "./physics";
 
+const CAM_PITCH = 0.285;   // inclinação padrão da câmera (rad): 2,5 m de altura a 4,8 m atrás
 const MAX_SPEED = 3.4, MAX_SIDE = 3.0, MAX_BACK = 2.6;   // m/s: frente, lado, ré (a ré é mais lenta, como no jogo de verdade)
-interface Swing { startT: number; endT: number; clip: string; s: number; contactT: number; t: number; duration: number; x0: number; z0: number; x1: number; z1: number; contacted: boolean; kind: string; plan?: number[]; err: number; whiff: boolean; msg?: string; }
+interface Swing { startT: number; endT: number; clip: string; s: number; contactT: number; t: number; duration: number; x0: number; z0: number; x1: number; z1: number; contacted: boolean; kind: string; plan?: number[]; err: number; whiff: boolean; msg?: string; preview?: boolean; }
 /** próxima rebatida: onde a jogadora deve estar, quando a bola chega e quando apertar GOLPE (tempos no relógio do jogo) */
 interface Cue { arrival: number; press: number; prep: number; x1: number; z1: number; smp: Sample; clip: string; kind: string; shift: number; cost: number; }
 export interface CueView { ttp: number; reach: boolean; win: number; }
@@ -33,6 +34,7 @@ export class Game {
   rally = 0; record = loadRecord(); deadTimer = 0; time = 0; serveTime = 0;
   swing: Swing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
   cue: Cue | null = null; private lastCue: Cue | null = null; marker: CueMarker; perfects = 0;
+  cam = { yaw: 0, pitch: CAM_PITCH, dist: S.camDist };   // câmera em órbita em torno da jogadora: giro (360°), inclinação e distância (zoom)
   vx = 0; vz = 0; phase = 0; idlePhase = 0; alt = 0;
   log: LogEntry[] = [];
   onToast: (m: string) => void = () => {};
@@ -74,7 +76,7 @@ export class Game {
     this.rig.faceAssist = S.faceAssist; this.tun.eSand = S.eSand; this.tun.eWall = S.eWall;
     this.rig.applyRacketTransform(S, S.playerScale);
     if (recalc) this.rig.calibrate(S.contactOffset);
-    this.ballMesh.scale.setScalar(S.ballVisual);
+    this.ballMesh.scale.setScalar(S.ballVisual); this.cam.dist = S.camDist;
   }
 
   resize(): void {
@@ -110,12 +112,29 @@ export class Game {
   // ---------- tempo e posição ----------
   private reachR(): number { return S.assist * (S.auto ? 1.6 : 1); }   // raio em que o golpe ainda leva a jogadora ao ponto certo
 
+  /** golpe do vídeo se o clipe existe; senão o de mocap de tênis */
+  private pick(clip: string, fallback: string): string { return this.rig.contactLocal.has(clip) ? clip : fallback; }
+
   private candidates(smp: Sample): { clip: string; kind: string }[] {
     const n = (this.alt % 2) + 1;
-    if (smp.y > 1.95) return [{ clip: `smash_${n}`, kind: "smash" }];
+    if (smp.y > 1.95) return [{ clip: this.pick(`v_smash_${n}`, `smash_${n}`), kind: "smash" }];
     if (smp.bounces === 0 && smp.y > 0.75) return [{ clip: `fvolley_${n}`, kind: "volley" }, { clip: `bvolley_${n}`, kind: "volley" }];
-    return [{ clip: `forehand_${n}`, kind: "ground" }, { clip: `backhand_${n}`, kind: "ground" }];
+    return [{ clip: this.pick(n === 1 ? "v_fh_din_1" : "v_fh_est_1", `forehand_${n}`), kind: "ground" }, { clip: this.pick(n === 1 ? "v_bh_din_1" : "v_bh_est_1", `backhand_${n}`), kind: "ground" }];
   }
+
+  /** prévia de um golpe (galeria dos Ajustes): toca o clipe inteiro no lugar, sem bola */
+  previewStroke(clip: string): boolean {
+    if (!this.rig.mixer || this.swing || this.state === "rally") return false;
+    const act = this.rig.actions.get(clip); if (!act) return false;
+    const p = this.rig.root.position, dur = this.rig.durations.get(clip) ?? 2, ct = Math.min(this.rig.ct(clip, S.contactOffset), dur - 0.05);
+    this.swing = { clip, s: 1, contactT: ct, t: 0, startT: 0, endT: dur - 0.02, duration: dur, x0: p.x, z0: p.z, x1: p.x, z1: p.z, contacted: false, kind: "preview", err: 0, whiff: true, preview: true };
+    this.swingAct = act; this.vx = 0; this.vz = 0; this.cue = null; this.info = `prévia: ${clip}`; this.onHud(); return true;
+  }
+
+  // ---------- câmera ----------
+  orbit(dyaw: number, dpitch: number): void { this.cam.yaw += dyaw; this.cam.pitch = THREE.MathUtils.clamp(this.cam.pitch + dpitch, 0.06, 1.35); }
+  zoom(f: number): void { this.cam.dist = S.camDist = THREE.MathUtils.clamp(this.cam.dist * f, 1.8, 14); }
+  recenter(): void { this.cam.yaw = 0; this.cam.pitch = CAM_PITCH; }
 
   /** tempo (s) que a jogadora ainda fica parada no fim do golpe em andamento (0 sem golpe): não dá para correr nesse intervalo */
   private lockLeft(): number { const sw = this.swing; return sw ? Math.max(0, (sw.endT - sw.t) / sw.s) : 0; }
@@ -199,12 +218,13 @@ export class Game {
   }
 
   private whiff(err: number, msg?: string): void {
-    const p = this.rig.root.position, clip = `${this.ball.x <= p.x ? "fore" : "back"}hand_${(this.alt % 2) + 1}`;
+    const p = this.rig.root.position, n = (this.alt % 2) + 1, clip = this.ball.x <= p.x ? this.pick(n === 1 ? "v_fh_din_1" : "v_fh_est_1", `forehand_${n}`) : this.pick(n === 1 ? "v_bh_din_1" : "v_bh_est_1", `backhand_${n}`);
     this.beginSwing(clip, "ground", this.rig.ct(clip, S.contactOffset), S.timeScale, p.x, p.z, err, true, undefined, msg);
   }
 
   // ---------- contato ----------
   private doContact(sw: Swing): void {
+    if (sw.preview) return;
     const act = this.swingAct!; act.time = Math.min(sw.contactT, sw.duration - 1e-3);
     this.rig.root.position.set(sw.x1, 0, sw.z1);
     this.rig.mixer.update(0); this.rig.root.updateMatrixWorld(true); this.rig.fixRacket(this.rig.faceAssist); this.rig.root.updateMatrixWorld(true);
@@ -254,7 +274,9 @@ export class Game {
     if (this.state === "dead") { this.deadTimer -= dt; if (this.deadTimer <= 0) { this.state = "wait"; if (S.autoServe) this.serve(); } }
 
     if (!this.swing) {
-      const tx = -this.input.right * MAX_SIDE, tz = this.input.fwd * (this.input.fwd >= 0 ? MAX_SPEED : MAX_BACK); const k = Math.min(1, 10 * dt);
+      const cyw = Math.cos(this.cam.yaw), syw = Math.sin(this.cam.yaw);   // direcional relativo à câmera (com a câmera atrás da jogadora: frente = parede)
+      const mx = -this.input.right * cyw + this.input.fwd * syw, mz = this.input.fwd * cyw + this.input.right * syw;
+      const tx = mx * MAX_SIDE, tz = mz * (mz >= 0 ? MAX_SPEED : MAX_BACK); const k = Math.min(1, 10 * dt);
       this.vx += (tx - this.vx) * k; this.vz += (tz - this.vz) * k;
       p.x = THREE.MathUtils.clamp(p.x + this.vx * dt, -4.6, 4.6); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, -5, 6.5);
     }
@@ -326,10 +348,13 @@ export class Game {
   }
 
   private setCamera(snap: boolean, dt = 0.016): void {
-    const p = this.rig.root.position; const k = snap ? 1 : Math.min(1, 6 * dt);
-    const tp = new THREE.Vector3(p.x * 0.6, 2.5, p.z - 4.8);
+    const p = this.rig.root.position, { yaw, pitch, dist } = this.cam; const k = snap ? 1 : Math.min(1, 8 * dt);
+    const sy = Math.sin(yaw), cy = Math.cos(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    const lead = 4 * (1 - Math.min(1, pitch / 1.2));                                   // olha à frente da jogadora; de cima, olha para ela
+    const bx = p.x * 0.6;                                                              // segue 60% do deslocamento lateral
+    const tp = new THREE.Vector3(bx - sy * cp * dist, 1.1 + sp * dist, p.z - cy * cp * dist);
     this.camera.position.lerp(tp, k);
-    const look = new THREE.Vector3(p.x * 0.6, 1.1, p.z + 4); this.camera.lookAt(look);
+    this.camera.lookAt(bx + sy * lead, 1.1, p.z + cy * lead);
   }
 
   render(): void { this.renderer.render(this.scene, this.camera); }

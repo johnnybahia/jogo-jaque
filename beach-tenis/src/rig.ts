@@ -4,13 +4,14 @@ import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.j
 import { cleanWrists, WristTwist } from "./wrist";
 import { applyReadyPose } from "./ready";
 import { Loco, LOCO_CLIPS } from "./loco";
+import { isVideoClip, strokeOf } from "./strokes";
 
 export interface ClipMeta { name: string; kind: string; contact_time?: number; frames: number; duration?: number; speed_x_m_s?: number; speed_z_m_s?: number; }
 export const LOCO = ["idle", "run_f", "run_b", "run_l", "run_r"] as const;
 // tempo (s) do começo do golpe até o contato: o golpe de mocap começa PREP antes do instante de contato (o resto da preparação é pulado)
 export const PREP: Record<string, number> = { ground: 0.55, volley: 0.4, smash: 0.7, serve: 0.9 };
-export const prepOf = (clip: string): number => /smash/.test(clip) ? PREP.smash : /volley/.test(clip) ? PREP.volley : /serve/.test(clip) ? PREP.serve : PREP.ground;
-export const SWINGS = ["forehand_1", "forehand_2", "backhand_1", "backhand_2", "serve_1", "serve_2", "smash_1", "smash_2", "fvolley_1", "fvolley_2", "bvolley_1", "bvolley_2"];
+export const prepOf = (clip: string): number => strokeOf(clip)?.prep ?? (/smash/.test(clip) ? PREP.smash : /volley/.test(clip) ? PREP.volley : /serve/.test(clip) ? PREP.serve : PREP.ground);
+export const SWINGS: string[] = ["forehand_1", "forehand_2", "backhand_1", "backhand_2", "serve_1", "serve_2", "smash_1", "smash_2", "fvolley_1", "fvolley_2", "bvolley_1", "bvolley_2"];
 
 // Pegada da raquete. Referencial da mão (medido nos ossos, pose de repouso): F = dedos, A = lado do polegar, N = palma.
 // A raquete atravessa a palma na diagonal: eixo do cabo→cabeça = A girado BETA para F; a face fica paralela à palma (normal = N).
@@ -59,11 +60,22 @@ export class Rig {
       gltf.animations = gltf.animations.filter((c) => !names.has(c.name));
       for (const c of lg.animations) { c.tracks = c.tracks.filter((t) => t.name.endsWith(".quaternion") || /Hips\.position$/.test(t.name)); gltf.animations.push(c); }
     } catch { /* sem loco2: fica a locomoção do GLB principal */ }
+    // golpes do vídeo do autor (pose 3D → esqueleto da Jaqueline, tools/video): clipes v_* com o instante de contato já medido
+    try {
+      const [vg, vm] = await Promise.all([loader.loadAsync(base + "models/video_clips.glb"), fetch(base + "models/video_clips.json").then((r) => r.json())]);
+      const have = new Set(gltf.animations.map((c) => c.name));
+      for (const c of vg.animations) {
+        if (have.has(c.name) || !isVideoClip(c.name)) continue;
+        c.tracks = c.tracks.filter((t) => t.name.endsWith(".quaternion") || /Hips\.position$/.test(t.name)); gltf.animations.push(c);
+        const m = vm[c.name] ?? {}; this.meta[c.name] = { name: c.name, kind: "video", contact_time: m.contact_time, frames: m.frames ?? Math.round(c.duration * 30), duration: c.duration };
+        if (!SWINGS.includes(c.name)) SWINGS.push(c.name);
+      }
+    } catch { /* sem video_clips.glb: ficam só os golpes de mocap de tênis */ }
     const isLoco = (n: string) => (LOCO as readonly string[]).includes(n) || LOCO_CLIPS.includes(n);
     this.model = gltf.scene as THREE.Group;
     const skinned: THREE.SkinnedMesh[] = [];
     this.model.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { skinned.push(m); m.frustumCulled = false; m.castShadow = false; for (const mt of Array.isArray(m.material) ? m.material : [m.material]) fixSkinMaterial(mt); } });
-    cleanWrists(gltf.animations, WristTwist.hands(this.model), (n) => !isLoco(n));
+    cleanWrists(gltf.animations, WristTwist.hands(this.model), (n) => !isLoco(n) && !isVideoClip(n));
     if (skinned[0]) this.twist = WristTwist.attach(skinned[0]);
     this.root.add(this.model);
     this.model.traverse((o) => { if (!this.hand && /RightHand$/.test(o.name)) this.hand = o; });
@@ -186,16 +198,17 @@ export class Rig {
     return v.sub(r);
   }
 
-  /** contato = pico de velocidade do centro da raquete (±0,4 s ao redor do pico do punho do mocap) */
+  /** contato = pico de velocidade do centro da raquete (±0,4 s ao redor do pico do punho do mocap; ±0,12 s nos clipes do vídeo) */
   findPeaks(): void {
     for (const n of SWINGS) {
       const c0 = this.meta[n]?.contact_time ?? 1; const dur = this.durations.get(n) ?? 2;
-      const k0 = Math.max(1, Math.round((c0 - 0.4) * 30)), k1 = Math.min(Math.floor(dur * 30) - 2, Math.round((c0 + 0.4) * 30));
+      const win = isVideoClip(n) ? 0.12 : 0.4;   // clipes do vídeo: contato medido no punho; só refina ±0,12 s (a raquete sem punho ativo pode ter outro pico no vai-e-vem)
+      const k0 = Math.max(1, Math.round((c0 - win) * 30)), k1 = Math.min(Math.floor(dur * 30) - 2, Math.round((c0 + win) * 30));
       const P: THREE.Vector3[] = []; for (let k = k0 - 1; k <= k1 + 1; k++) P.push(this.measure(n, k / 30));
       let best = -1, bk = k0; const sp: number[] = [];
       for (let i = 1; i < P.length - 1; i++) { const v = P[i + 1].distanceTo(P[i - 1]); sp[i] = v; if (v > best) { best = v; bk = k0 - 1 + i; } }
       // golpes por cima: o pico de velocidade vem na descida (seguimento); o contato é o ponto mais alto entre os quadros rápidos
-      if (/^(serve|smash)/.test(n)) { let hi = -1e9; for (let i = 1; i < P.length - 1; i++) if (sp[i] >= 0.75 * best && P[i].y > hi) { hi = P[i].y; bk = k0 - 1 + i; } }
+      if (/^(serve|smash)/.test(n) || strokeOf(n)?.overhead) { let hi = -1e9; for (let i = 1; i < P.length - 1; i++) if (sp[i] >= 0.75 * best && P[i].y > hi) { hi = P[i].y; bk = k0 - 1 + i; } }
       this.peak.set(n, bk / 30);
     }
   }

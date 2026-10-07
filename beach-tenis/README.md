@@ -5,6 +5,8 @@ PWA 3D (Vite + TypeScript + Three.js) para **ajustar os movimentos** do jogo de 
 ## Jogar
 - Celular: abra o link do GitHub Pages. Na 1ª visita o jogo baixa tudo para funcionar **offline** (progresso no canto da tela e em ⚙; "✓ Pronto offline" ao terminar). O botão **⬇ Instalar app** (canto superior esquerdo) aparece quando o navegador permite instalar; no iPhone: Compartilhar → Adicionar à Tela de Início.
 - Controles: joystick virtual (arraste na metade esquerda) ou WASD/setas; **GOLPE** (ou Espaço) no tempo certo; **SACAR** (ou Enter).
+- **Câmera 360° e zoom:** arraste o dedo (ou o mouse) fora do joystick para girar em volta da Jaqueline; pinça (ou roda do mouse, ou ＋/－) para aproximar/afastar; ⟲ recentraliza. Teclado: Q/E giram, +/− zoom, R recentraliza. O joystick anda relativo à câmera.
+- **Golpes do vídeo:** ⚙ → "Golpes do vídeo" mostra a Jaqueline fazendo cada golpe (forehand/backhand dinâmico e estático, anômalo, smash, gancho, rainbow, bandejas, verônica, espeto, arco inferior, saque). No treino, forehand, backhand e smash usam esses movimentos.
 - **Rebater:** o jogo mostra *onde* ficar (anel no chão) e *quando* apertar GOLPE (anel que fecha; verde = agora). Fora do ponto ou do tempo o golpe falha ("Longe!", "Cedo!", "Tarde!"). Detalhes abaixo.
 - ⚙ abre o painel de ajustes: modo fácil (o jogo aperta na hora), raio de posição, janela de tempo, sincronia do contato (±frames), raio de acerto da bola, velocidade/quique da bola, escala da jogadora e posição/rotação da raquete na mão. Os valores ficam salvos no aparelho. "Copiar log" exporta o registro de golpes (gap mão×bola em cm).
 
@@ -29,7 +31,7 @@ npm run build      # gera dist/ + sw.js + version.json
 Areia: texturas PBR em `public/textures/` (Poly Haven "aerial_beach_01", CC0); se faltarem, usa a procedural.
 
 ## Pipeline de animação (`tools/`)
-`segment.py → select.py → retarget.py` (BVH do Tennis-MoCap → ossos Mixamo) → `add_loco.py` (idle/corrida Mixamo, in-place) → `inplace.py` → `export_glb.py`; `make_assets.py` converte raquete (FBX) e bola (GLB). Detalhes e limitações em `docs/CONTEXTO_BEACH_TENIS.md`.
+`segment.py → select.py → retarget.py` (BVH do Tennis-MoCap → ossos Mixamo) → `add_loco.py` (idle/corrida Mixamo, in-place) → `inplace.py` → `export_glb.py`; `make_assets.py` converte raquete (FBX) e bola (GLB). Golpes do vídeo do autor: `tools/video/` (pose 3D por vídeo → clipes da Jaqueline; ver o README da pasta). Detalhes e limitações em `docs/CONTEXTO_BEACH_TENIS.md`.
 
 ## Como funciona o rebater (tempo + posição)
 A cada quadro o jogo simula a trajetória da bola (mesma física, passo de 1/120 s) e escolhe a **próxima rebatida confortável**: depois do 1º quique, na altura do golpe, num ponto que dê para alcançar correndo. Ela vira um aviso:
