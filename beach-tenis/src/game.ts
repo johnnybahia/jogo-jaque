@@ -7,7 +7,7 @@ import { S, loadRecord, saveRecord } from "./settings";
 import { Footprints } from "./footprints";
 import { Ball, BALL_R, Sample, Tun, heightAtWall, newBall, predict, stepBall } from "./physics";
 
-const MAX_SPEED = 3.6;
+const MAX_SPEED = 3.4, MAX_SIDE = 3.0, MAX_BACK = 2.6;   // m/s: frente, lado, ré (a ré é mais lenta, como no jogo de verdade)
 interface Swing { startT: number; endT: number; clip: string; s: number; contactT: number; t: number; duration: number; x0: number; z0: number; x1: number; z1: number; contacted: boolean; kind: string; plan?: number[]; }
 interface Plan { st: number; smp?: Sample;  clip: string; s: number; ct: number; x1: number; z1: number; kind: string; cost: number; }
 export interface LogEntry { t: number; type: string; [k: string]: unknown; }
@@ -201,7 +201,7 @@ export class Game {
     if (this.state === "dead") { this.deadTimer -= dt; if (this.deadTimer <= 0) { this.state = "wait"; if (S.autoServe) this.serve(); } }
 
     if (!this.swing) {
-      const tx = -this.input.right * MAX_SPEED, tz = this.input.fwd * MAX_SPEED; const k = Math.min(1, 10 * dt);
+      const tx = -this.input.right * MAX_SIDE, tz = this.input.fwd * (this.input.fwd >= 0 ? MAX_SPEED : MAX_BACK); const k = Math.min(1, 10 * dt);
       this.vx += (tx - this.vx) * k; this.vz += (tz - this.vz) * k;
       p.x = THREE.MathUtils.clamp(p.x + this.vx * dt, -4.6, 4.6); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, -5, 6.5);
     }
@@ -232,13 +232,16 @@ export class Game {
     const R = this.rig; const target = this.swing ? 1 : 0;
     this.swingW += Math.sign(target - this.swingW) * Math.min(Math.abs(target - this.swingW), dt / (target ? 0.15 : 0.3));
     const Lw = 1 - this.swingW;
-    const speed = Math.hypot(this.vx, this.vz); const m = Math.min(1, speed / MAX_SPEED);
-    const f = this.vz, l = this.vx; const sum = Math.abs(f) + Math.abs(l) + 1e-6;
-    const w: Record<string, number> = { idle: 1 - m, run_f: Math.max(f, 0) / sum * m, run_b: Math.max(-f, 0) / sum * m, run_l: Math.max(l, 0) / sum * m, run_r: Math.max(-l, 0) / sum * m };
-    this.phase = (this.phase + dt * m / 0.75) % 1; this.idlePhase = (this.idlePhase + dt / 1.8) % 1;
-    for (const n of LOCO) {
-      const a = R.actions.get(n); if (!a) continue; const d = R.durations.get(n) ?? 1;
-      a.setEffectiveWeight(w[n] * Lw); a.time = (n === "idle" ? this.idlePhase : this.phase) * d * 0.999;
+    if (R.loco.ready) R.loco.step(R, dt, this.vx, this.vz, Lw);
+    else {   // sem loco2.glb: locomoção do GLB principal
+      const speed = Math.hypot(this.vx, this.vz); const m = Math.min(1, speed / MAX_SPEED);
+      const f = this.vz, l = this.vx; const sum = Math.abs(f) + Math.abs(l) + 1e-6;
+      const w: Record<string, number> = { idle: 1 - m, run_f: Math.max(f, 0) / sum * m, run_b: Math.max(-f, 0) / sum * m, run_l: Math.max(l, 0) / sum * m, run_r: Math.max(-l, 0) / sum * m };
+      this.phase = (this.phase + dt * m / 0.75) % 1; this.idlePhase = (this.idlePhase + dt / 1.8) % 1;
+      for (const n of LOCO) {
+        const a = R.actions.get(n); if (!a) continue; const d = R.durations.get(n) ?? 1;
+        a.setEffectiveWeight(w[n] * Lw); a.time = (n === "idle" ? this.idlePhase : this.phase) * d * 0.999;
+      }
     }
     if (this.swingAct) {
       const sw = this.swing; const d = this.swingAct.getClip().duration;

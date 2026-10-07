@@ -71,6 +71,13 @@ Conferido visualmente (tiras `strip_forehand.png`, `strip_serve_smash.png`): pre
 - **Posição de espera:** `ready.ts` troca o braço direito dos clipes de parada/corrida (pose de conjuração do pacote Magic: mão na altura da cabeça) por uma pose fixa de espera (braço pendente, cotovelo dobrado, raquete à frente com a cabeça para cima).
 - **Contato dos golpes por cima:** saque/smash usam o ponto mais alto entre os quadros rápidos (o pico de velocidade da cabeça vem na descida).
 
+## Locomoção (pernas)
+- **Problema:** um ciclo fixo de 0,75 s e 3,6 m/s para todas as direções: os pés patinavam (ré 56% mais rápida que os pés; esquerda/frente ~20%+; em velocidades baixas quase 100%).
+- **`loco.ts`:** mede, ao carregar, a velocidade natural de cada clipe (média da velocidade do pé apoiado em relação ao corpo) e o instante do toque de cada pé; toca no ritmo velocidade ÷ distância por ciclo (mínimos quadrados quando mistura direções), com fase comum alinhada nos dois toques; andar↔correr por velocidade; velocidade máxima por direção (frente 3,4 / lado 3,0 / ré 2,6 m/s, perto da velocidade natural dos clipes).
+- **Clipes:** parada e corridas continuam no `jaqueline.glb`; as caminhadas (frente/ré/esquerda/direita, pacote Magic) vêm de `loco2.glb` + `loco2.json`, gerados por `tools/add_clips.py` (FBX Mixamo → ações no esqueleto da Jaqueline, in-place, velocidade natural em m/s).
+- **Cuidado:** FBX Mixamo "com malha" (os que trazem a personagem, 8 MB) têm os eixos do Hips diferentes dos pacotes sem malha; copiar a ação para o esqueleto dá quadril girado ~90° e sem altura. `Standing Walk Back.fbx` enviado em `beach-tenis/` é a mesma animação do pacote Magic (37 quadros); `Run Look Back` é corrida em curva; `Injured`/`Crouch Torch` são mancando/agachado.
+- **Medido (patinação = velocidade do pé apoiado ÷ velocidade do corpo; piso de ~15–20% do próprio osso do tornozelo):** frente 1,0 m/s 89→36%, 2,0 m/s 72→18%; ré 1,0 94→14%, 2,0 80→21%; esquerda 1,0 102→41%, 2,0 91→19%; direita 1,0 86→47%, 2,0 62→22%. Diagonais para trás (ré+lado) seguem altas (~80–100%: misturar dois clipes de passo não casa os apoios).
+
 ## Próximos passos sugeridos (ordem)
 1. **Cena base**: quadra 16×8 m (areia), rede a ~1,70 m (confirmar medidas oficiais), câmera, 1 jogadora (esta GLB) + locomoção/idle do pacote Mixamo (converter com o mesmo script `bpy`, copiando o padrão do `convert_characters.py` do Kage).
 2. **Física da bola** com passo fixo (voo com arrasto+Magnus a partir do OpenHawk; quique **amortecido na areia**, restituição baixa — calibrar).

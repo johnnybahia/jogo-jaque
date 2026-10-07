@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { cleanWrists, WristTwist } from "./wrist";
 import { applyReadyPose } from "./ready";
+import { Loco, LOCO_CLIPS } from "./loco";
 
 export interface ClipMeta { name: string; kind: string; contact_time?: number; frames: number; duration?: number; speed_x_m_s?: number; speed_z_m_s?: number; }
 export const LOCO = ["idle", "run_f", "run_b", "run_l", "run_r"] as const;
@@ -38,6 +39,7 @@ export class Rig {
   peak = new Map<string, number>();
   presetQ = new THREE.Quaternion();
   twist: WristTwist | null = null;
+  loco = new Loco();
   private grip: { F: THREE.Vector3; A: THREE.Vector3; N: THREE.Vector3; palm: THREE.Vector3 } | null = null;
   private fingers: { bone: THREE.Bone; rest: THREE.Quaternion; axis: THREE.Vector3; ang: number }[] = [];
   private tq = new THREE.Quaternion(); private tp = new THREE.Vector3(); private ts = new THREE.Vector3();
@@ -46,21 +48,31 @@ export class Rig {
     const loader = new GLTFLoader(); loader.setMeshoptDecoder(MeshoptDecoder);
     const [gltf, meta] = await Promise.all([loader.loadAsync(base + "models/jaqueline.glb"), fetch(base + "models/clips.json").then((r) => r.json())]);
     this.meta = meta;
+    // locomoção neutra (pacote "Locomotion"): troca parada/corrida do GLB principal (pose de conjuração do pacote Magic) e acrescenta as caminhadas
+    let locoMeta: Record<string, { speed_x_m_s?: number; speed_z_m_s?: number }> = {};
+    try {
+      const [lg, lm] = await Promise.all([loader.loadAsync(base + "models/loco2.glb"), fetch(base + "models/loco2.json").then((r) => r.json())]);
+      locoMeta = lm; const names = new Set(lg.animations.map((c) => c.name));
+      gltf.animations = gltf.animations.filter((c) => !names.has(c.name));
+      for (const c of lg.animations) { c.tracks = c.tracks.filter((t) => t.name.endsWith(".quaternion") || /Hips\.position$/.test(t.name)); gltf.animations.push(c); }
+    } catch { /* sem loco2: fica a locomoção do GLB principal */ }
+    const isLoco = (n: string) => (LOCO as readonly string[]).includes(n) || LOCO_CLIPS.includes(n);
     this.model = gltf.scene as THREE.Group;
     const skinned: THREE.SkinnedMesh[] = [];
     this.model.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { skinned.push(m); m.frustumCulled = false; m.castShadow = false; for (const mt of Array.isArray(m.material) ? m.material : [m.material]) fixSkinMaterial(mt); } });
-    cleanWrists(gltf.animations, WristTwist.hands(this.model), (n) => !(LOCO as readonly string[]).includes(n));
+    cleanWrists(gltf.animations, WristTwist.hands(this.model), (n) => !isLoco(n));
     if (skinned[0]) this.twist = WristTwist.attach(skinned[0]);
     this.root.add(this.model);
     this.model.traverse((o) => { if (!this.hand && /RightHand$/.test(o.name)) this.hand = o; });
     if (!this.hand) throw new Error("osso RightHand não encontrado");
     this.captureGrip();
-    applyReadyPose(this.model, gltf.animations, LOCO, this.gripAxes().q);
+    applyReadyPose(this.model, gltf.animations, [...LOCO, ...LOCO_CLIPS], this.gripAxes().q);
     this.mixer = new THREE.AnimationMixer(this.model);
     for (const c of gltf.animations) {
       const a = this.mixer.clipAction(c); a.play(); a.timeScale = 0; a.setEffectiveWeight(0); a.time = 0;
       this.actions.set(c.name, a); this.durations.set(c.name, c.duration);
     }
+    this.loco.measure(this, locoMeta);
     try {
       const rk = await loader.loadAsync(base + "models/racket.glb");
       rk.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { m.frustumCulled = false; } });
