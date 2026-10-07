@@ -21,3 +21,12 @@ Anotado a pedido do autor (a partir do vídeo `movimentos.mp4`, 14 golpes reais 
 ## Estado
 - Vídeo segmentado em 14 golpes (cortes de câmera: 4,53 / 8,87 / 13,63 / 17,97 / 22,07 / 26,47 / 31,33 / 35,37 / 39,37 / 43,63 / 48,30 / 52,03 / 55,63 s) e pose 3D extraída (MediaPipe, 1799/1800 quadros; mão da raquete = direita).
 - Falta: retarget para a Jaqueline, quadra/adversária, botões, força, seta, regras.
+
+## Pedidos adicionais do autor (anotados)
+- Nome do jogo: **Jaque Beach Tennis — Play Match**; a jogadora se chama **Jaqueline**. É um presente para a esposa: qualidade e carinho acima de tudo.
+- **Capa inicial** (título + logo), **ranking de vitórias** (local primeiro; servidor no web app depois).
+- **Câmera 360°** (girar quando quiser) e **zoom** para escolher a distância de jogo.
+- **Placar de beach tênis** (regras oficiais: 15/30/40, ponto decisivo no 40-40, saque único, set de 6 games com tie-break).
+- Força/mira/seta/botões: seguir a convenção dos jogos de tênis (segurar para carregar, soltar no verde; segurar demais manda para fora).
+- Ordem pedida: **1) movimentos do vídeo na Jaqueline**, depois câmera/zoom, partida, capa/logo/ranking.
+- **Referência obrigatória:** `docs/GUIA_ATAQUES_E_DEFESAS.md` (guia tático enviado pelo autor): bola viva (sem quique na areia), 8 ataques e a defesa recomendada para cada um. O jogo e os movimentos seguem esse guia.
