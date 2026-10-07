@@ -21,7 +21,7 @@ export class PoseFX {
   private root: THREE.Object3D;
   private tmpQ = new Q(); private tmpQ2 = new Q(); private tmpV = new V(); private tmpV2 = new V(); private tmpV3 = new V(); private ident = new Q();
 
-  constructor(rig: Rig) {
+  constructor(rig: Rig, private dir = 1) {   // dir = −1: personagem virada para −z (adversária); os eixos laterais/frontais do mundo invertem
     this.root = rig.root;
     const find = (re: RegExp): THREE.Bone | null => { let f: THREE.Bone | null = null; rig.model.traverse((o) => { if (!f && (o as THREE.Bone).isBone && re.test(o.name)) f = o as THREE.Bone; }); return f; };
     for (const k of ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head", "LeftArm", "RightArm", "LeftForeArm", "RightForeArm", "LeftHand", "RightHand"]) this.b[k] = find(new RegExp(`${k}$`));
@@ -35,7 +35,7 @@ export class PoseFX {
     bone.parent.getWorldQuaternion(this.tmpQ); this.tmpQ2.copy(this.tmpQ).invert().multiply(r).multiply(this.tmpQ);
     bone.quaternion.premultiply(this.tmpQ2); bone.updateMatrixWorld(true);
   }
-  private axisRot(ax: number, ay: number, az: number, ang: number): THREE.Quaternion { return new Q().setFromAxisAngle(this.tmpV3.set(ax, ay, az), ang); }
+  private axisRot(ax: number, ay: number, az: number, ang: number): THREE.Quaternion { return new Q().setFromAxisAngle(this.tmpV3.set(ax * this.dir, ay, az * this.dir), ang); }
   private fwdOf(key: string, out: THREE.Vector3): THREE.Vector3 { const bone = this.b[key]; return out.copy(this.fwdLocal[key] ?? this.tmpV3.set(0, 0, 1)).applyQuaternion(bone!.getWorldQuaternion(this.tmpQ)); }
 
   update(i: FxIn): void {

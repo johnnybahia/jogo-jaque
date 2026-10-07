@@ -127,3 +127,13 @@ python -I scripts/retarget.py -- "JAQUELINE+OK PRONTA.fbx" Tennis-MoCap/data scr
 python -I scripts/export_glb.py -- out/retarget.blend jaqueline_tenis.glb
 ```
 Obs.: `segment.py` lê `labels.csv` na pasta pai de `data/`.
+
+## Modo partida (adversária, rede, placar)
+- **Cenário:** `buildMatchCourt()` (scene.ts): linhas de 16 × 8 m e rede de 1,70 m em `MATCH.netZ = 8`; lado da jogadora z ∈ [0, 8], da adversária [8, 16]. `Game.setMode("match")` troca parede por rede (`Tun.net`, `wallZ = 99`) e mostra a adversária.
+- **Adversária** (`opponent.ts`): `Rig.cloneInstance()` copia o modelo (com raquete, pele e ajuste de pulso) e compartilha clipes, picos de contato e medidas; raiz girada em π (ela olha para −z; contato espelhado = (−cx, cy, −cz)); `PoseFX(dir = −1)`. Estamina própria.
+- **Regras** (`match.ts`, placar em `rules.ts`): o 1º toque na areia decide o ponto olhando quem bateu por último, o lado em que caiu e se foi dentro das linhas (`inCourt`): bola curta, bola no chão, fora; a rede (`Tun.net` → evento "net") dá o ponto a quem não bateu. Saque alternado pelo placar; quem saca fica atrás da linha, quem recebe um pouco à frente (`homeZ`).
+- **Golpe da jogadora** (`playerShot`): onde a bola cai = mira (direcional) + qualidade do tempo (perfeito/bom/fraco: fraco pode ir na rede ou longa); tempo de voo e fundura por golpe (`PROFILE`) e pela "Velocidade da bola" dos ajustes; `solveShot` + conferência da folga da rede (≥ 0,12 m acima da fita).
+- **IA** (`makePlan`/`aiShot`): ao ver a bola da jogadora (trajetória prevista), escolhe o ponto do ar que dá para alcançar (corrida × nível × fôlego, preparo comprimido até 1,9×, deslize durante o golpe = alcance do nível) e o golpe da altura certa; deixa passar a bola que vai fora (esperteza do nível). A devolução escolhe um golpe e um ponto de contato para a jogadora a uma corrida que ela aguenta × `diff` do nível (> 1 = bola vencedora), confere a rede e que a bola, se ninguém bater, cai dentro; erra (rede/fora) com a chance do nível, maior quanto mais esticada. Contatos da jogadora e da adversária são tratados no instante exato em `Game.advance`.
+- **Níveis** (`LEVELS`): velocidade, reação, erro, dificuldade da colocação, esperteza, alcance. Medido com bot "humano" (±120 ms, reação 0,4 s): Fácil 16–0, Médio 12–9, Difícil 3–16 (pontos da jogadora × da adversária).
+- **Capa e ranking** (`menu.ts`): título, logo, Partida (formato e nível), Treino na parede, Golpes, Ranking local (vitórias/derrotas por nível e últimas partidas em `localStorage`).
+- **Testes:** bots (Playwright) jogam partidas inteiras contra cada nível; unidade do placar (24 pontos num set, 48 em melhor de 3 etc.).

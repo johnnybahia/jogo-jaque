@@ -18,7 +18,11 @@ Anotado a pedido do autor (a partir do vídeo `movimentos.mp4`, 14 golpes reais 
 5. **Ponto:** rede, fora, bola na areia (quicou), golpe errado/atrasado/longe do ponto, ou a adversária falhando.
 6. **Animações:** vêm do vídeo (pose 3D → esqueleto da Jaqueline), com porta de aprovação da qualidade antes de integrar.
 
-## Estado
+## Estado (atualizado)
+- **Pronto:** golpes do vídeo na Jaqueline (base de trabalho: não precisam ficar idênticos ao vídeo, decisão do autor); câmera 360° + zoom; fôlego; bola viva; **partida contra a adversária** (quadra, rede 1,70 m, IA com 3 níveis, placar oficial, saque alternado, "Deixa passar!"); capa com logo e ranking local.
+- **Falta:** um botão por golpe + "golpe pedido" (hoje um botão GOLPE e o jogo escolhe o golpe pela bola); barra de força (segurar = mais forte, demais = fora) e seta de direção; ranking em servidor; ajuste fino de dificuldade com a esposa jogando.
+
+## Estado (histórico)
 - Vídeo segmentado em 14 golpes (cortes de câmera: 4,53 / 8,87 / 13,63 / 17,97 / 22,07 / 26,47 / 31,33 / 35,37 / 39,37 / 43,63 / 48,30 / 52,03 / 55,63 s) e pose 3D extraída (MediaPipe, 1799/1800 quadros; mão da raquete = direita).
 - Falta: retarget para a Jaqueline, quadra/adversária, botões, força, seta, regras.
 

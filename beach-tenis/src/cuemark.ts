@@ -2,12 +2,13 @@ import * as THREE from "three";
 
 // Marcador de rebatida no chão: anel fixo = onde ficar; anel que encolhe até fechar nele = quando apertar GOLPE.
 // Cores: branco (longe no tempo) → amarelo (perto) → verde (agora) → laranja (passou); vermelho = fora de alcance.
-const COL = { far: 0xffffff, near: 0xffd23a, now: 0x35e06a, late: 0xff9a2e, bad: 0xff4a4a };
+const COL = { far: 0xffffff, near: 0xffd23a, now: 0x35e06a, late: 0xff9a2e, bad: 0xff4a4a, out: 0x8fa3b5 };   // out: a bola vai cair fora (deixa passar)
 const LEAD = 1.2;   // s antes do aperto ideal em que o anel externo aparece
 
-export interface CueView { x: number; z: number; ttp: number; reach: boolean; win: number; }
+export interface CueView { x: number; z: number; ttp: number; reach: boolean; win: number; out?: boolean; }
 
-export function cueState(v: { ttp: number; reach: boolean; win: number }): keyof typeof COL {
+export function cueState(v: { ttp: number; reach: boolean; win: number; out?: boolean }): keyof typeof COL {
+  if (v.out) return "out";
   if (!v.reach) return "bad";
   if (Math.abs(v.ttp) <= v.win) return "now";
   if (v.ttp < 0) return "late";
