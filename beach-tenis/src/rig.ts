@@ -6,6 +6,13 @@ export interface ClipMeta { name: string; kind: string; contact_time?: number; f
 export const LOCO = ["idle", "run_f", "run_b", "run_l", "run_r"] as const;
 export const SWINGS = ["forehand_1", "forehand_2", "backhand_1", "backhand_2", "serve_1", "serve_2", "smash_1", "smash_2", "fvolley_1", "fvolley_2", "bvolley_1", "bvolley_2"];
 
+/** O GLB sai sem metallicFactor (padrão glTF = 1) e a cena não tem mapa de ambiente: sem isto a jogadora renderiza preta. O BLEND do export também é desnecessário (textura opaca). */
+function fixSkinMaterial(mt: THREE.Material): void {
+  const s = mt as THREE.MeshStandardMaterial;
+  if (!s.isMeshStandardMaterial) return;
+  s.metalness = 0; s.roughness = 0.8; s.transparent = false; s.opacity = 1; s.depthWrite = true; s.needsUpdate = true;
+}
+
 export class Rig {
   root = new THREE.Group();
   model = new THREE.Group();
@@ -27,7 +34,7 @@ export class Rig {
     const [gltf, meta] = await Promise.all([loader.loadAsync(base + "models/jaqueline.glb"), fetch(base + "models/clips.json").then((r) => r.json())]);
     this.meta = meta;
     this.model = gltf.scene as THREE.Group;
-    this.model.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { m.frustumCulled = false; m.castShadow = false; } });
+    this.model.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { m.frustumCulled = false; m.castShadow = false; for (const mt of Array.isArray(m.material) ? m.material : [m.material]) fixSkinMaterial(mt); } });
     this.root.add(this.model);
     this.mixer = new THREE.AnimationMixer(this.model);
     for (const c of gltf.animations) {
