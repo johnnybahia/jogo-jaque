@@ -10,8 +10,9 @@ PWA 3D (Vite + TypeScript + Three.js) para **ajustar os movimentos** do jogo de 
 - **Saque:** começa com o saque da jogadora (ela lança a bola e saca com o movimento do vídeo); depois a bola vai para a parede.
 - **Fôlego (stamina):** a barra "Fôlego" (canto superior esquerdo) gasta com a corrida e com cada golpe (golpes por cima gastam mais) e recupera entre os pontos; com pouco fôlego a Jaqueline corre mais devagar (até 55%) e o treino manda bolas mais perto. Liga/desliga em ⚙.
 - **Rede:** o risco azul da parede está em 1,70 m (altura da rede de beach tênis); a bola precisa bater na parede acima dele.
+- **Bola viva (sem quique):** no beach tênis a bola é rebatida no ar. O primeiro toque na areia encerra o ponto.
 - **Rebater:** o jogo mostra *onde* ficar (anel no chão) e *quando* apertar GOLPE (anel que fecha; verde = agora). Fora do ponto ou do tempo o golpe falha ("Longe!", "Cedo!", "Tarde!"). Detalhes abaixo.
-- ⚙ abre o painel de ajustes: modo fácil (o jogo aperta na hora), raio de posição, janela de tempo, sincronia do contato (±frames), raio de acerto da bola, velocidade/quique da bola, escala da jogadora e posição/rotação da raquete na mão. Os valores ficam salvos no aparelho. "Copiar log" exporta o registro de golpes (gap mão×bola em cm).
+- ⚙ abre o painel de ajustes: modo fácil (o jogo aperta na hora), raio de posição, janela de tempo, sincronia do contato (±frames), raio de acerto da bola, velocidade da bola, escala da jogadora e posição/rotação da raquete na mão. Os valores ficam salvos no aparelho. "Copiar log" exporta o registro de golpes (gap mão×bola em cm).
 
 ## Publicar (uma vez)
 1. GitHub → **Settings → Pages → Source: GitHub Actions**.
@@ -37,11 +38,11 @@ Areia: texturas PBR em `public/textures/` (Poly Haven "aerial_beach_01", CC0); s
 `segment.py → select.py → retarget.py` (BVH do Tennis-MoCap → ossos Mixamo) → `add_loco.py` (idle/corrida Mixamo, in-place) → `inplace.py` → `export_glb.py`; `make_assets.py` converte raquete (FBX) e bola (GLB). Golpes do vídeo do autor: `tools/video/` (pose 3D por vídeo → clipes da Jaqueline; ver o README da pasta). Detalhes e limitações em `docs/CONTEXTO_BEACH_TENIS.md`.
 
 ## Como funciona o rebater (tempo + posição)
-A cada quadro o jogo simula a trajetória da bola (mesma física, passo de 1/120 s) e escolhe a **próxima rebatida confortável**: depois do 1º quique, na altura do golpe, num ponto que dê para alcançar correndo. Ela vira um aviso:
+A cada quadro o jogo simula a trajetória da bola (mesma física, passo de 1/120 s) e escolhe a **próxima rebatida confortável**: **no ar** (a bola é viva, como no beach tênis de verdade: não pode quicar), na altura do golpe, num ponto que dê para alcançar correndo. Ela vira um aviso:
 - **Onde:** anel no chão (o ponto onde a jogadora deve estar). Vermelho = ainda longe; só vale quando ela está dentro do **raio de posição** (Ajustes).
 - **Quando:** um anel que encolhe até fechar no do chão e em volta do botão GOLPE; **verde = apertar agora**. A bola ganha um brilho da mesma cor. Amarelo = quase, laranja = passou.
 - **Resultado:** se o aperto cai dentro do raio, a jogadora desliza até o ponto e o clipe de golpe é acelerado/retardado (0,62×–1,9×) para o contato cair na bola. O erro de tempo só define a qualidade: ±70 ms **Perfeito** (bola mais rápida e precisa), ±160 ms **Bom**, além disso **Cedo!/Tarde!** (bola fraca); fora da faixa de velocidade do clipe o golpe passa em branco. Longe do ponto: **Longe!**.
-- A devolução da parede é escolhida (altura, lado, velocidade) para ser sempre rebatível a partir de onde a jogadora acabou de bater; ela fica presa no fim do golpe por ~0,4 s.
+- **Bola viva:** a bola não pode quicar. Se tocar a areia, o ponto acaba ("Quicou na areia"). A parede devolve a bola em arco até o ponto de contato de um golpe sorteado (os 13 do vídeo, cada um na sua altura), a uma corrida que a jogadora aguenta (menor quando ela está sem fôlego); ela fica presa no fim do golpe por ~0,4 s.
 - **Modo fácil** (Ajustes): o jogo aperta na hora certa; só é preciso correr até o anel.
 O painel mostra o `gap` mão×bola no contato.
 

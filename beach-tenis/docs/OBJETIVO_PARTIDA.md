@@ -11,11 +11,11 @@ Anotado a pedido do autor (a partir do vídeo `movimentos.mp4`, 14 golpes reais 
 - Uma **seta** mostra a direção da bola na quadra adversária.
 
 ## Como vai funcionar (proposta, a confirmar)
-1. **Quadra de partida:** rede a 1,70 m, linhas, limites, regra de quique, placar (modo "Treino na parede" continua).
+1. **Quadra de partida:** rede a 1,70 m, linhas, limites, bola viva (sem quique), placar (modo "Treino na parede" continua).
 2. **Adversária:** 2ª instância da Jaqueline com IA (anda até a bola, escolhe o golpe, mira, erra com probabilidade por nível).
-3. **Golpe pedido:** a situação da bola (altura, quique, velocidade, lado, profundidade) define o golpe correto (tabela situação → golpe); o botão pedido pisca; golpe errado = jogada errada.
+3. **Golpe pedido:** a situação da bola (altura, velocidade, lado, profundidade) define o golpe correto (tabela situação → golpe); o botão pedido pisca; golpe errado = jogada errada.
 4. **Força e mira:** segurar o botão enche a barra (celular não mede pressão); o direcional mira; a seta/trajetória na quadra adversária mostra onde a bola cai com a força atual e fica vermelha se sair; soltar no verde.
-5. **Ponto:** rede, fora, 2 quiques, golpe errado/atrasado/longe do ponto, ou a adversária falhando.
+5. **Ponto:** rede, fora, bola na areia (quicou), golpe errado/atrasado/longe do ponto, ou a adversária falhando.
 6. **Animações:** vêm do vídeo (pose 3D → esqueleto da Jaqueline), com porta de aprovação da qualidade antes de integrar.
 
 ## Estado
@@ -29,7 +29,7 @@ Anotado a pedido do autor (a partir do vídeo `movimentos.mp4`, 14 golpes reais 
 - **Placar de beach tênis** (regras oficiais: 15/30/40, ponto decisivo no 40-40, saque único, set de 6 games com tie-break).
 - Força/mira/seta/botões: seguir a convenção dos jogos de tênis (segurar para carregar, soltar no verde; segurar demais manda para fora).
 - Ordem pedida: **1) movimentos do vídeo na Jaqueline**, depois câmera/zoom, partida, capa/logo/ranking.
-- **Referência obrigatória:** `docs/GUIA_ATAQUES_E_DEFESAS.md` (guia tático enviado pelo autor): bola viva (sem quique na areia), 8 ataques e a defesa recomendada para cada um. O jogo e os movimentos seguem esse guia.
+- **Referência obrigatória:** `docs/GUIA_ATAQUES_E_DEFESAS.md` (guia tático enviado pelo autor): bola viva (sem quique na areia; **já vale no treino na parede**: o 1º toque na areia encerra o ponto), 8 ataques e a defesa recomendada para cada um. O jogo e os movimentos seguem esse guia.
 - **Stamina dos jogadores** (pedido do autor): quanto mais um jogador é obrigado a correr na própria quadra, mais stamina gasta; quando acaba, ele fica **mais lento**, o que ajuda o outro lado a fazer pontos (estratégia: colocar a bola longe para cansar a adversária). Vale para a Jaqueline e para a adversária (IA). Proposta: barra de stamina no HUD; gasto proporcional à distância corrida (mais ao arrancar/correr em velocidade máxima); recuperação lenta parado e parcial entre pontos/games; com a barra vazia a velocidade máxima cai (~60%) e o tempo de reação/alcance diminui; níveis da IA mudam o consumo. Entra junto com a partida (tarefas #37/#38).
-- **Variedade de golpes** (pedido do autor): no jogo o personagem deve usar os golpes do vídeo conforme a situação da bola (altura, quique, lado, urgência), inclusive no modo automático — não só forehand/backhand.
+- **Variedade de golpes** (pedido do autor): no jogo o personagem deve usar os golpes do vídeo conforme a situação da bola (altura, lado, urgência), inclusive no modo automático — não só forehand/backhand.
 - **Atualizações contínuas:** cada melhoria é enviada ao git assim que fica pronta (o autor tem tempo limitado de sessão e acompanha pelo jogo publicado).
