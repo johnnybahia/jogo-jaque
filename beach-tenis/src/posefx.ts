@@ -9,24 +9,38 @@ import type { Rig } from "./rig";
 const V = THREE.Vector3, Q = THREE.Quaternion, D2R = Math.PI / 180;
 const clamp = THREE.MathUtils.clamp, smooth = (a: number, b: number, x: number): number => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+const SQUAT_MAX = 0.12;   // quanto o quadril pode descer abaixo da parada (unidades do jogo; o personagem tem ~1,45)
 
 export interface FxIn { dt: number; time: number; ball: THREE.Vector3 | null; vx: number; vz: number; stamina: number; swingW: number; react?: number; rt?: number; }   // react: 0 nada, 1 suspiro (errou cedo), 2 comemoração; rt: s desde o fim do ponto
 
 export class PoseFX {
   enabled = true;
   private b: Record<string, THREE.Bone | null> = {};
-  private fwdLocal: Record<string, THREE.Vector3> = {};         // "frente" no referencial local do osso (do repouso, olhando +z)
+  private ax: Record<string, { l: THREE.Vector3; u: THREE.Vector3; f: THREE.Vector3 }> = {};   // esquerda, cima e frente DO PERSONAGEM no referencial local de cada osso (pose de referência)
   private gazeW = 0; private yaw = 0; private pitch = 0;          // olhar suavizado: peso e ângulos do mundo (rad)
   private leanF = 0; private leanS = 0; private pvx = 0; private pvz = 0; private aF = 0; private aS = 0;
-  private root: THREE.Object3D;
+  private root: THREE.Object3D; private standY = 0;   // standY: altura do quadril na parada (referência para limitar o agachamento)
   private tmpQ = new Q(); private tmpQ2 = new Q(); private tmpV = new V(); private tmpV2 = new V(); private tmpV3 = new V(); private ident = new Q();
 
   constructor(rig: Rig, private dir = 1) {   // dir = −1: personagem virada para −z (adversária); os eixos laterais/frontais do mundo invertem
-    this.root = rig.root;
+    this.root = rig.root; this.yaw = dir === 1 ? 0 : Math.PI;   // o olhar começa para a frente do personagem
     const find = (re: RegExp): THREE.Bone | null => { let f: THREE.Bone | null = null; rig.model.traverse((o) => { if (!f && (o as THREE.Bone).isBone && re.test(o.name)) f = o as THREE.Bone; }); return f; };
-    for (const k of ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head", "LeftArm", "RightArm", "LeftForeArm", "RightForeArm", "LeftHand", "RightHand"]) this.b[k] = find(new RegExp(`${k}$`));
-    rig.model.updateMatrixWorld(true);
-    for (const k of ["Spine2", "Head"]) { const bone = this.b[k]; if (bone) this.fwdLocal[k] = new V(0, 0, 1).applyQuaternion(bone.getWorldQuaternion(new Q()).invert()); }
+    for (const k of ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head", "LeftArm", "RightArm", "LeftForeArm", "RightForeArm", "LeftHand", "RightHand", "LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg", "LeftFoot", "RightFoot"]) this.b[k] = find(new RegExp(`${k}$`));
+    // eixos de referência medidos na pose de repouso do esqueleto (todos os pesos em 0 = pose original, de pé e olhando para a frente do personagem). Antes eram
+    // medidos na pose que sobrava da medição da locomoção (uma corrida no meio do passo): a cabeça mirava um eixo errado e ficava torta.
+    const saved = [...rig.actions].map(([, a]) => [a, a.getEffectiveWeight(), a.time] as const);
+    for (const [, a] of rig.actions) a.setEffectiveWeight(0);
+    rig.mixer.update(0); rig.root.updateMatrixWorld(true);
+    const rq = rig.root.getWorldQuaternion(new Q()).invert();
+    for (const k of ["Spine2", "Neck", "Head"]) {
+      const bone = this.b[k]; if (!bone) continue;
+      const inv = rq.clone().multiply(bone.getWorldQuaternion(new Q())).invert();   // personagem → osso
+      this.ax[k] = { l: new V(1, 0, 0).applyQuaternion(inv), u: new V(0, 1, 0).applyQuaternion(inv), f: new V(0, 0, 1).applyQuaternion(inv) };
+    }
+    // altura do quadril na parada (clipe idle)
+    const idle = rig.actions.get("idle"), hips = this.b.Hips;
+    if (idle && hips) { idle.setEffectiveWeight(1); idle.time = 0.5; rig.mixer.update(0); rig.root.updateMatrixWorld(true); this.standY = hips.getWorldPosition(new V()).y - rig.root.getWorldPosition(new V()).y; idle.setEffectiveWeight(0); }
+    for (const [a, w, t] of saved) { a.setEffectiveWeight(w); a.time = t; }
   }
 
   /** aplica a rotação r (em eixos do mundo, em torno da junta) ao osso: local' = (pai⁻¹ · r · pai) · local */
@@ -36,11 +50,50 @@ export class PoseFX {
     bone.quaternion.premultiply(this.tmpQ2); bone.updateMatrixWorld(true);
   }
   private axisRot(ax: number, ay: number, az: number, ang: number): THREE.Quaternion { return new Q().setFromAxisAngle(this.tmpV3.set(ax * this.dir, ay, az * this.dir), ang); }
-  private fwdOf(key: string, out: THREE.Vector3): THREE.Vector3 { const bone = this.b[key]; return out.copy(this.fwdLocal[key] ?? this.tmpV3.set(0, 0, 1)).applyQuaternion(bone!.getWorldQuaternion(this.tmpQ)); }
+  private fwdOf(key: string, out: THREE.Vector3): THREE.Vector3 { const bone = this.b[key], a = this.ax[key]; return out.copy(a ? a.f : this.tmpV3.set(0, 0, 1)).applyQuaternion(bone!.getWorldQuaternion(this.tmpQ)); }
+
+  /** limita o agachamento: o quadril dos clipes do vídeo chega a descer 0,2 m (sentada na areia). Se descer mais que maxDrop abaixo da parada, o quadril sobe e as duas pernas
+   *  esticam por IK para os pés ficarem onde estavam (plantados), com o joelho dobrando para o mesmo lado e o pé na mesma orientação */
+  private squat(maxDrop: number): void {
+    const hips = this.b.Hips; if (!hips || !hips.parent || this.standY <= 0) return;
+    hips.updateWorldMatrix(true, false);
+    const hy = hips.getWorldPosition(new V()).y - this.root.getWorldPosition(new V()).y, lift = this.standY - maxDrop - hy;
+    if (lift < 0.004) return;
+    const legs = (["Left", "Right"] as const).map((sd) => {
+      const up = this.b[`${sd}UpLeg`], kn = this.b[`${sd}Leg`], ft = this.b[`${sd}Foot`]; if (!up || !kn || !ft) return null;
+      const H = up.getWorldPosition(new V()), K = kn.getWorldPosition(new V()), A = ft.getWorldPosition(new V()), u = A.clone().sub(H).normalize();
+      return { up, kn, ft, A, Qf: ft.getWorldQuaternion(new Q()), pole: K.clone().sub(H).addScaledVector(u, -K.clone().sub(H).dot(u)).normalize() };
+    });
+    const w = hips.getWorldPosition(new V()); w.y += lift; hips.position.copy(hips.parent.worldToLocal(w)); hips.updateMatrixWorld(true);
+    for (const l of legs) {
+      if (!l) continue;
+      const H = l.up.getWorldPosition(new V()), K0 = l.kn.getWorldPosition(new V()), A0 = l.ft.getWorldPosition(new V()), L1 = H.distanceTo(K0), L2 = K0.distanceTo(A0);
+      const toA = l.A.clone().sub(H), d0 = toA.length(); if (d0 < 1e-5) continue;
+      const u = toA.divideScalar(d0), d = clamp(d0, Math.abs(L1 - L2) + 1e-3, L1 + L2 - 1e-3);
+      const p = l.pole.clone().addScaledVector(u, -l.pole.dot(u)); if (p.lengthSq() < 1e-6) continue; p.normalize();
+      const a = (L1 * L1 - L2 * L2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+      const Kt = H.clone().addScaledVector(u, a).addScaledVector(p, h);
+      this.rot(l.up, new Q().setFromUnitVectors(K0.clone().sub(H).normalize(), Kt.clone().sub(H).normalize()));
+      const K1 = l.kn.getWorldPosition(new V()), A1 = l.ft.getWorldPosition(new V()), At = H.clone().addScaledVector(u, d);
+      this.rot(l.kn, new Q().setFromUnitVectors(A1.sub(K1).normalize(), At.sub(K1).normalize()));
+      l.ft.parent!.getWorldQuaternion(this.tmpQ); l.ft.quaternion.copy(this.tmpQ.invert().multiply(l.Qf)); l.ft.updateMatrixWorld(true);
+    }
+  }
+
+  /** gira o osso (peso w) para a frente dele apontar na direção f do mundo, com a cabeça NIVELADA (cima do osso = cima do mundo): olha sem inclinar de lado */
+  private look(key: "Neck" | "Head", w: number, f: THREE.Vector3): void {
+    const bone = this.b[key], a = this.ax[key]; if (!bone || !bone.parent || !a || w <= 0.001) return;
+    const uT = new V(0, 1, 0).addScaledVector(f, -f.y); if (uT.lengthSq() < 1e-4) return; uT.normalize();   // cima do mundo, tirando a parte ao longo de f
+    const lT = new V().crossVectors(uT, f);                                                                     // esquerda = cima × frente
+    const M = new THREE.Matrix4().makeBasis(lT, uT, f).multiply(new THREE.Matrix4().makeBasis(a.l, a.u, a.f).transpose());   // osso → mundo
+    const qT = new Q().setFromRotationMatrix(M), cur = bone.getWorldQuaternion(new Q()), parent = bone.parent.getWorldQuaternion(new Q());
+    bone.quaternion.copy(parent.invert().multiply(cur.slerp(qT, w))); bone.updateMatrixWorld(true);
+  }
 
   update(i: FxIn): void {
     this.root.position.y = 0;   // só a comemoração tira os pés do chão (recalculado a cada quadro)
     if (!this.enabled) return;
+    this.squat(SQUAT_MAX);
     const { dt } = i, k = (tau: number) => 1 - Math.exp(-dt / tau);
     const tired = 1 - smooth(0.12, 0.65, i.stamina), free = 1 - i.swingW;          // free: fora dos golpes (nos golpes o clipe manda no tronco)
     // aceleração (m/s²) a partir da velocidade, suavizada
@@ -67,15 +120,9 @@ export class PoseFX {
       }
     }
     if (this.gazeW > 0.01) {
-      // guinada em torno do eixo vertical e depois inclinação em torno do eixo lateral: a cabeça gira sem inclinar de lado (nada de "pescoço torto")
-      const aim = (bone: THREE.Bone, share: number): void => {
-        const f = this.fwdOf("Head", this.tmpV), fy = Math.atan2(f.x, f.z), fp = Math.atan2(f.y, Math.hypot(f.x, f.z));
-        const dy = wrap(this.yaw - fy) * share * this.gazeW, dp = (this.pitch - fp) * share * this.gazeW;
-        const ry = new Q().setFromAxisAngle(this.tmpV3.set(0, 1, 0), dy), ny = fy + dy;
-        const rp = new Q().setFromAxisAngle(this.tmpV3.set(Math.cos(ny), 0, -Math.sin(ny)), -dp);
-        this.rot(bone, rp.multiply(ry));
-      };
-      aim(neck, 0.4); aim(head, 1);
+      // direção do olhar (yaw/pitch do mundo, suavizados) → pescoço (parte) e cabeça (o resto) viram para ela, de cabeça nivelada
+      const f = this.tmpV.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
+      this.look("Neck", 0.4 * this.gazeW, f.clone()); this.look("Head", this.gazeW, f.clone());
     }
     if (tired > 0.01) this.rot(neck, this.axisRot(1, 0, 0, tired * 3 * D2R * free));   // cansada: cabeça um pouco caída
     this.react(i.react ?? 0, i.rt ?? 0, neck, head);

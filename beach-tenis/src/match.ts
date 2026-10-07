@@ -5,7 +5,7 @@ import type { Opponent, OppSwing } from "./opponent";
 import { Score, Format, Side } from "./rules";
 import { MATCH, NET_H } from "./scene";
 import { BALL_R, Ball, Sample, Tun, predict, solveShot } from "./physics";
-import { INTENT_W, FOLLOW, SERVE_CLIP, TOSS_REL, TOSS_APEX, strokeOf } from "./strokes";
+import { INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex, strokeOf } from "./strokes";
 import { S } from "./settings";
 
 /** nível da adversária: velocidade máxima (m/s), tempo de reação (s), chance de errar, quão difícil ela coloca a bola (× alcance), esperteza (deixa passar bola fora) */
@@ -34,7 +34,7 @@ export class Match {
   score: Score; lastHitter: Side = 0; hitId = 0; over: Side | null = null;
   stats = { plans: 0, noPlan: 0, letGo: 0, whiff: 0, miss: 0, hit: 0, err: 0, serves: 0 };   // diagnóstico da IA
   private plan: AIPlan | null = null; private planned = -1; private hitAt = 0; private letGo = false; serveBy: Side = 0;
-  private toss: { rel: number; hx: number; hy: number; hz: number; cx: number; cy: number; cz: number } | null = null;
+  private toss: { rel: number; apex: number; hx: number; hy: number; hz: number; cx: number; cy: number; cz: number } | null = null;
   private tmp = new THREE.Vector3(); private noNet: Tun;
 
   get opp(): Opponent { return this.o; }
@@ -204,9 +204,9 @@ export class Match {
     const g = this.g, o = this.o, R = o.rig, clip = SERVE_CLIP, act = R.actions.get(clip), cl = R.contactLocal.get(clip);
     if (!act || !cl || !R.leftHand) { this.aiShot(true, false); g.state = "rally"; g.rally = 0; g.serveTime = g.time; return; }
     const dur = R.durations.get(clip) ?? 2, ct = R.ct(clip, S.contactOffset), h = R.measureObj(clip, TOSS_REL, R.leftHand);
-    o.swing = { clip, key: "saque", kind: "serve", s: S.timeScale, t: 0, startT: 0, contactT: ct, endT: Math.min(dur - 0.02, ct + FOLLOW + 0.15), duration: dur, x0: o.x, z0: o.z, x1: o.x, z1: o.z, contacted: false, serve: true, whiff: false };
+    o.swing = { clip, key: "saque", kind: "serve", s: S.timeScale, t: SERVE_START, startT: SERVE_START, contactT: ct, endT: Math.min(dur - 0.02, ct + SERVE_FOLLOW), duration: dur, x0: o.x, z0: o.z, x1: o.x, z1: o.z, contacted: false, serve: true, whiff: false };
     o.swingAct = act; o.vx = o.vz = 0;
-    this.toss = { rel: TOSS_REL, hx: o.x + h.x, hy: h.y, hz: o.z + h.z, cx: o.x - cl.x, cy: cl.y, cz: o.z - cl.z };
+    this.toss = { rel: TOSS_REL, apex: tossApex((ct - TOSS_REL) / S.timeScale), hx: o.x + h.x, hy: h.y, hz: o.z + h.z, cx: o.x - cl.x, cy: cl.y, cz: o.z - cl.z };
     this.serveBy = 1; g.state = "serve"; g.rally = 0; g.cue = null; Object.assign(g.ball, { x: this.toss.hx, y: this.toss.hy, z: this.toss.hz, vx: 0, vy: 0, vz: 0, bounces: 0, ret: null });
     g.ballMesh.visible = true; g.ballShadow.visible = true; g.emit("serve", { by: "opp" }); g.onHud();
   }
@@ -214,7 +214,7 @@ export class Match {
   private serveStep(dt: number): void {
     const g = this.g, o = this.o, sw = o.swing, z = this.toss, b = g.ball; if (!sw || !z) { g.state = "wait"; return; }
     sw.t += dt * sw.s;
-    if (sw.t >= z.rel) { const u = Math.min(1, (sw.t - z.rel) / Math.max(1e-3, sw.contactT - z.rel)); b.x = z.hx + (z.cx - z.hx) * u; b.z = z.hz + (z.cz - z.hz) * u; b.y = z.hy + (z.cy - z.hy) * u + 4 * TOSS_APEX * u * (1 - u); }
+    if (sw.t >= z.rel) { const u = Math.min(1, (sw.t - z.rel) / Math.max(1e-3, sw.contactT - z.rel)); b.x = z.hx + (z.cx - z.hx) * u; b.z = z.hz + (z.cz - z.hz) * u; b.y = z.hy + (z.cy - z.hy) * u + 4 * z.apex * u * (1 - u); }
     else if (o.rig.leftHand) { o.rig.leftHand.getWorldPosition(this.tmp); b.x = this.tmp.x; b.y = this.tmp.y + 0.05; b.z = this.tmp.z; }
     b.vx = b.vy = b.vz = 0;
     if (!sw.contacted && sw.t >= sw.contactT) { sw.t = sw.contactT; sw.contacted = true; this.contact(sw); }

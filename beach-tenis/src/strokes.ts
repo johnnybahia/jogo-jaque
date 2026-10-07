@@ -27,4 +27,8 @@ export const strokeOf = (clip: string): StrokeInfo | undefined => BY_CLIP.get(cl
 // golpes do vídeo que o treino/IA sorteia (frequência relativa); o saque só é usado no saque
 export const INTENT_W: Record<string, number> = { fh_din: 3, fh_est: 3, bh_din: 3, bh_est: 3, anomalo: 1.5, rainbow: 1.5, band_fh: 1.5, band_bh: 1.5, arco: 1, smash: 2, gancho: 1.2, veronica: 1.2, espeto: 1.2 };
 export const FOLLOW = 0.42;   // s de clipe depois do contato em que quem bateu ainda fica preso no golpe (depois volta a correr)
-export const SERVE_CLIP = "v_saque_1", TOSS_REL = 0.42, TOSS_APEX = 0.85;   // saque do vídeo; s do clipe em que a bola sai da mão; quanto o arco da bola passa acima da mão/contato (m)
+// saque do vídeo e s do clipe em que a bola sai da mão. A mão esquerda do clipe chega ao ponto mais alto em ~0,63 s e começa a descer em ~0,8 s: a bola sai dela aí (antes, em 0,42 s,
+// saía de uma mão baixa e passava quase 1 s no ar). O arco da bola é o de uma bola de verdade: o quanto passa acima da reta mão→contato é g·T²/8 (T = tempo no ar em s).
+// O começo do clipe (0–0,45 s) é um agachamento fundo com a raquete na frente do peito, esquisito; o saque entra no clipe em SERVE_START (a mão esquerda já está subindo) e a bola sai em TOSS_REL.
+export const SERVE_CLIP = "v_saque_1", SERVE_START = 0.45, TOSS_REL = 0.74, SERVE_FOLLOW = 0.3;   // SERVE_FOLLOW: s de clipe depois do contato até largar o saque (o fim do clipe é uma aterrissagem agachada esquisita)
+export const tossApex = (T: number): number => 9.81 * T * T / 8;
