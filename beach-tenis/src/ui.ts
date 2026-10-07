@@ -1,13 +1,15 @@
 import { Game } from "./game";
 import { S, DEFAULTS, saveSettings, Settings } from "./settings";
+import { cueState, cueProgress } from "./cuemark";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type Spec = { key: keyof Settings; label: string; min: number; max: number; step: number; recalc?: boolean };
 const SPECS: Array<[string, Spec[]]> = [
   ["Jogo", [
-    { key: "assist", label: "Assistência de posição", min: 0, max: 1, step: 0.05 },
-    { key: "hitRadius", label: "Raio de acerto (m)", min: 0.1, max: 1.2, step: 0.05 },
-    { key: "ballSpeed", label: "Velocidade da bola (m/s)", min: 8, max: 22, step: 0.5 },
+    { key: "assist", label: "Raio de posição (m): quão longe do ponto ainda acerta", min: 0.2, max: 1.5, step: 0.05 },
+    { key: "timing", label: "Janela de tempo (×): perfeito/bom", min: 0.6, max: 2.5, step: 0.1 },
+    { key: "hitRadius", label: "Raio de acerto da bola (m)", min: 0.15, max: 0.8, step: 0.01 },
+    { key: "ballSpeed", label: "Velocidade da bola (m/s)", min: 6, max: 16, step: 0.5 },
     { key: "aimSpread", label: "Dispersão da mira (m)", min: 0, max: 2.5, step: 0.1 },
     { key: "timeScale", label: "Velocidade das animações", min: 0.5, max: 1.5, step: 0.05 },
   ]],
@@ -52,6 +54,13 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   addEventListener("keydown", (e) => { const k = e.key.toLowerCase(); if (k === " ") { game.manualSwing(); e.preventDefault(); } else if (k === "enter") game.serve(); else { keys.add(k); kbd(); } });
   addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); kbd(); });
   $("swingBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); game.manualSwing(); });
+  // aviso de tempo: o anel em volta do GOLPE encolhe até fechar no botão (apertar agora); verde = janela de acerto
+  const ring = $("timeRing"), swingBtn = $("swingBtn");
+  game.onCue = (v) => {
+    if (!v) { ring.style.opacity = "0"; swingBtn.classList.remove("now"); return; }
+    const st = cueState(v); ring.dataset.st = st; ring.style.opacity = st === "bad" ? "0.3" : "1";
+    ring.style.transform = `scale(${1 + 0.55 * cueProgress(v.ttp)})`; swingBtn.classList.toggle("now", st === "now");
+  };
   $("serveBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); if (game.state !== "rally") game.serve(); });
 
   // painel
@@ -61,7 +70,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   const build = () => {
     panel.innerHTML = `<b>Beach Tênis</b> <small>v${version}</small>`;
     const chk = (key: "auto" | "autoServe" | "footprints", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); }; panel.appendChild(l); };
-    chk("auto", "Golpe automático (sincronizado)"); chk("autoServe", "Saque automático"); chk("footprints", "Marcas dos pés na areia");
+    chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("footprints", "Marcas dos pés na areia");
     for (const [title, specs] of SPECS) {
       const h = document.createElement("h3"); h.textContent = title; panel.appendChild(h);
       for (const sp of specs) {
