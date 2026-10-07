@@ -7,9 +7,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 #hud{position:fixed;top:max(10px,env(safe-area-inset-top));left:12px;font-weight:700;text-shadow:0 1px 3px #000a}
 #rally{font-size:20px}#info{font-size:12px;opacity:.85;margin-top:2px;font-weight:500}
 #gear{position:fixed;top:max(8px,env(safe-area-inset-top));right:10px;width:44px;height:44px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:22px}
-#installChip{position:fixed;top:calc(max(10px,env(safe-area-inset-top)) + 46px);left:12px;border:0;border-radius:999px;padding:7px 13px;background:#ff6a00;color:#fff;font-weight:800;font-size:13px;box-shadow:0 2px 8px #0008}
+#leftBtns{position:fixed;top:calc(max(10px,env(safe-area-inset-top)) + 46px);left:12px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+#leftBtns button{border:0;border-radius:999px;padding:7px 13px;color:#fff;font-weight:800;font-size:13px;box-shadow:0 2px 8px #0008}
+#installChip{background:#ff6a00}#viewBtn{background:#1b6fb4}
 #installChip:disabled{background:#0b1620cc;color:#fff;font-weight:600}#installChip.ok{background:#1f9d55}
-#toast{position:fixed;top:22%;left:0;right:0;text-align:center;font-size:28px;font-weight:800;text-shadow:0 2px 6px #000b;opacity:0;transition:opacity .25s;pointer-events:none}
+#toast{position:fixed;z-index:7;top:22%;left:0;right:0;text-align:center;font-size:28px;font-weight:800;text-shadow:0 2px 6px #000b;opacity:0;transition:opacity .25s;pointer-events:none}
 #toast.on{opacity:1}
 #joyZone{position:fixed;left:0;bottom:0;width:55%;height:55%}
 #joyBase{position:absolute;width:110px;height:110px;border-radius:50%;background:#ffffff22;border:2px solid #ffffff55;display:none;transform:translate(-50%,-50%)}
@@ -22,7 +24,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 #timeRing[data-st=near]{border-color:#ffd23a}#timeRing[data-st=now]{border-color:#35e06a;border-width:8px}#timeRing[data-st=late]{border-color:#ff9a2e}#timeRing[data-st=bad]{border-color:#ff4a4a}
 #swingBtn.now{box-shadow:0 0 0 7px #35e06a99,0 3px 10px #0008}
 #serveBtn{width:72px;height:72px;background:#1b6fb4;font-size:13px}
-#panel{position:fixed;top:0;right:0;bottom:0;width:min(330px,88vw);background:#0b1620ee;overflow:auto;padding:14px 14px 40px;touch-action:pan-y;font-size:13px}
+#panel{position:fixed;z-index:5;top:0;right:0;bottom:0;width:min(330px,88vw);background:#0b1620ee;overflow:auto;padding:14px 14px 40px;touch-action:pan-y;font-size:13px}
 #panel h3{margin:14px 0 6px;font-size:13px;color:#ffb36b;text-transform:uppercase;letter-spacing:.05em}
 #panel label{display:block;margin:7px 0}#panel label span{display:flex;justify-content:space-between}
 #panel input[type=range]{width:100%}
@@ -34,4 +36,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 #upd{position:fixed;left:50%;bottom:max(130px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:12px;align-items:center;background:#0b1620f2;border:1px solid #ff6a00;padding:10px 14px;border-radius:12px;font-weight:600;z-index:5}
 #upd button{background:#ff6a00;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:800}
 #loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0d2b3e;font-size:20px;z-index:9}
+#viewBar{position:fixed;left:0;right:0;bottom:0;z-index:4;display:flex;flex-direction:column;gap:8px;padding:26px 12px max(12px,env(safe-area-inset-bottom));background:linear-gradient(#0000,#0b1620ee 34%)}
+#viewSel{width:100%;padding:9px 10px;border-radius:10px;border:0;background:#2a3b4a;color:#fff;font-size:15px;font-weight:700}
+#viewSeek{width:100%;margin:2px 0}
+#viewBar .vrow{display:flex;gap:8px}#viewBar .vrow button{flex:1;padding:12px 0;border:0;border-radius:10px;background:#2a3b4a;color:#fff;font-size:13px;font-weight:700;white-space:nowrap}
+#viewBar #vExit{flex:2;background:#ff6a00}
+.viewing #btns,.viewing #joyZone,.viewing #leftBtns,.viewing #hud{display:none}
+#panel .ph{position:sticky;top:-14px;margin:-14px -14px 0;padding:12px 14px;background:#0b1620;display:flex;align-items:center;gap:8px;z-index:1}#panel .ph b{flex:1}#panel .ph button{margin:0;padding:6px 12px;background:#ff6a00;font-weight:800}
 [hidden]{display:none!important}

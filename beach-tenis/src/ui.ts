@@ -2,7 +2,7 @@ import { Game } from "./game";
 import { S, DEFAULTS, saveSettings, Settings } from "./settings";
 import { cueState, cueProgress } from "./cuemark";
 import { mountPwaUI } from "./pwaui";
-import { STROKES } from "./strokes";
+import { STROKES, strokeOf } from "./strokes";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type Spec = { key: keyof Settings; label: string; min: number; max: number; step: number; recalc?: boolean };
@@ -59,6 +59,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   const kbd = () => { game.input.right = (keys.has("d") || keys.has("arrowright") ? 1 : 0) - (keys.has("a") || keys.has("arrowleft") ? 1 : 0); game.input.fwd = (keys.has("w") || keys.has("arrowup") ? 1 : 0) - (keys.has("s") || keys.has("arrowdown") ? 1 : 0); };
   addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
+    if (game.viewer && (k === "escape" || k === "arrowleft" || k === "arrowright" || k === " ")) { if (k === "escape") game.viewClose(); else if (k === " ") game.viewPause(); else game.viewStep(k === "arrowleft" ? -1 : 1); e.preventDefault(); return; }
+    if (k === "g") { if (game.viewer) game.viewClose(); else openView(); return; }
     if (k === " ") { game.manualSwing(); e.preventDefault(); } else if (k === "enter") game.serve();
     else if (k === "q") game.orbit(0.12, 0); else if (k === "e") game.orbit(-0.12, 0); else if (k === "+" || k === "=") game.zoom(0.9); else if (k === "-") game.zoom(1.1); else if (k === "r") game.recenter();
     else { keys.add(k); kbd(); }
@@ -90,21 +92,41 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   $("zoomOut").addEventListener("click", () => { game.zoom(1.18); saveSettings(); });
   $("camReset").addEventListener("click", () => game.recenter());
 
+  // galeria de golpes: botão 🎬 Golpes (ou o menu) interrompe o rali e repete o golpe do vídeo; pausa, câmera lenta e arrastar o tempo
+  const vbar = $("viewBar"), vsel = $("viewSel") as HTMLSelectElement, vseek = $("viewSeek") as HTMLInputElement, vplay = $("vPlay"), vspeed = $("vSpeed");
+  const SPEEDS = [1, 0.5, 0.25], SPEED_TXT: Record<number, string> = { 1: "1×", 0.5: "½×", 0.25: "¼×" }; let seeking = false;
+  game.onView = (v) => {
+    document.body.classList.toggle("viewing", !!v); vbar.hidden = !v; if (!v) return;
+    if (!vsel.options.length) for (const c of game.viewList()) { const st = strokeOf(c)!, o = document.createElement("option"); o.value = c; o.textContent = st.clips.length > 1 ? `${st.label} · ${st.clips.indexOf(c) + 1}/${st.clips.length}` : st.label; vsel.appendChild(o); }
+    vsel.value = v.clip; vplay.textContent = v.paused ? "Seguir" : "Pausar"; vspeed.textContent = SPEED_TXT[v.speed] ?? `${v.speed}×`;
+  };
+  const openView = (clip?: string): boolean => { const ok = game.viewStroke(clip ?? game.viewList()[0] ?? ""); if (!ok) game.onToast("Golpes do vídeo não carregaram — feche e abra o app"); return ok; };
+  $("viewBtn").addEventListener("click", () => openView());
+  vsel.onchange = () => { game.viewStroke(vsel.value); vsel.blur(); };
+  $("vPrev").onclick = () => game.viewStep(-1); $("vNext").onclick = () => game.viewStep(1); vplay.onclick = () => game.viewPause(); $("vExit").onclick = () => game.viewClose();
+  vspeed.onclick = () => game.viewSpeed(SPEEDS[(SPEEDS.indexOf(game.viewer?.speed ?? 1) + 1) % SPEEDS.length]);
+  vseek.addEventListener("pointerdown", () => { seeking = true; game.viewPause(true); });
+  const seekEnd = () => { seeking = false; }; vseek.addEventListener("pointerup", seekEnd); vseek.addEventListener("pointercancel", seekEnd);
+  vseek.oninput = () => { game.viewPause(true); game.viewSeek(Number(vseek.value) / 1000); };
+  setInterval(() => { if (game.viewer && !seeking) vseek.value = String(Math.round(game.viewT() * 1000)); }, 60);
+
   // painel
   const panel = $("panel"); $("gear").addEventListener("click", () => { panel.hidden = !panel.hidden; if (!panel.hidden) renderLog(); });
+  camZone.addEventListener("pointerdown", () => { panel.hidden = true; });   // toque fora do menu fecha
   const logEl = document.createElement("pre");
   const renderLog = () => { logEl.textContent = game.log.filter((l) => l.type === "contact" || l.type === "swing" || l.type === "dead").slice(-14).map((l) => JSON.stringify(l)).join("\n"); };
   const pwaBox = document.createElement("div"); pwaBox.id = "pwaBox";
   mountPwaUI($("installChip") as HTMLButtonElement, pwaBox, () => { panel.hidden = false; renderLog(); });
   const build = () => {
-    panel.innerHTML = `<b>Beach Tênis</b> <small>v${version}</small>`; panel.appendChild(pwaBox);
+    panel.innerHTML = `<div class="ph"><span><b>Beach Tênis</b> <small>v${version}</small></span><button type="button">✕ Fechar</button></div>`;
+    panel.querySelector<HTMLButtonElement>(".ph button")!.onclick = () => { panel.hidden = true; }; panel.appendChild(pwaBox);
     const gh = document.createElement("h3"); gh.textContent = "Golpes do vídeo (toque para ver)"; panel.appendChild(gh);
     const chips = document.createElement("div"); chips.className = "chips"; const turn = new Map<string, number>();
     for (const st of STROKES) {
       const b = document.createElement("button"); b.textContent = st.label;
       b.onclick = () => {
         const i = turn.get(st.key) ?? 0; turn.set(st.key, i + 1); const clip = st.clips[i % st.clips.length];
-        if (game.previewStroke(clip)) panel.hidden = true; else game.onToast("Termine o rali para ver o golpe");
+        if (openView(clip)) panel.hidden = true;
       };
       chips.appendChild(b);
     }

@@ -18,10 +18,15 @@
 <div id="hud"><div id="rally">Rali 0 · Recorde 0</div><div id="info"></div></div>
 <button id="gear" aria-label="Ajustes">⚙</button>
 <div id="camBtns"><button id="zoomIn" aria-label="Aproximar">＋</button><button id="zoomOut" aria-label="Afastar">－</button><button id="camReset" aria-label="Recentralizar a câmera">⟲</button></div>
-<button id="installChip" hidden></button>
+<div id="leftBtns"><button id="installChip" hidden></button><button id="viewBtn">🎬 Golpes</button></div>
 <div id="toast"></div>
 <div id="joyZone"><div id="joyBase"><div id="knob"></div></div></div>
 <div id="btns"><button id="serveBtn">SACAR</button><div id="swingWrap"><div id="timeRing"></div><button id="swingBtn">GOLPE</button></div></div>
+<div id="viewBar" hidden>
+  <select id="viewSel" aria-label="Golpe"></select>
+  <input id="viewSeek" type="range" min="0" max="1000" value="0" aria-label="Momento do golpe">
+  <div class="vrow"><button id="vPrev">◀ Ant.</button><button id="vPlay">Pausar</button><button id="vNext">Próx. ▶</button><button id="vSpeed" aria-label="Velocidade">1×</button><button id="vExit">✕ Sair</button></div>
+</div>
 <div id="panel" hidden></div>
 <div id="upd" hidden><span>Nova versão disponível</span><button id="updBtn">Atualizar</button></div>
 <div id="loading">Carregando…</div>
