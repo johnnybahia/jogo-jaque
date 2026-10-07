@@ -42,6 +42,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     toast.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; toast.appendChild(el); }
     toast.classList.add("on"); clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), sub ? 1300 : 900);
   };
+  const sta = $("sta"), staBar = sta.firstElementChild as HTMLElement;
+  game.onStamina = (v) => { staBar.style.width = `${Math.round(v * 100)}%`; sta.classList.toggle("low", v < 0.3); };
   const upd = () => { $("rally").textContent = `Rali ${game.rally} · Recorde ${game.record}`; $("info").textContent = game.info; };
   game.onHud = upd; upd();
 
@@ -136,8 +138,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
       chips.appendChild(b);
     }
     panel.appendChild(chips);
-    const chk = (key: "auto" | "autoServe" | "footprints", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); }; panel.appendChild(l); };
-    chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("footprints", "Marcas dos pés na areia");
+    const chk = (key: "auto" | "autoServe" | "stamina" | "footprints", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); }; panel.appendChild(l); };
+    chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("stamina", "Fôlego (quem corre mais cansa e fica mais lenta)"); chk("footprints", "Marcas dos pés na areia");
     for (const [title, specs] of SPECS) {
       const h = document.createElement("h3"); h.textContent = title; panel.appendChild(h);
       for (const sp of specs) {

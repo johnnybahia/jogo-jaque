@@ -7,6 +7,7 @@ import { S, loadRecord, saveRecord } from "./settings";
 import { Footprints } from "./footprints";
 import { CueMarker } from "./cuemark";
 import { STROKES, strokeOf } from "./strokes";
+import { Stamina } from "./stamina";
 import { Ball, BALL_R, Sample, Tun, heightAtWall, newBall, predict, stepBall } from "./physics";
 
 const CAM_PITCH = 0.285;   // inclinação padrão da câmera (rad): 2,5 m de altura a 4,8 m atrás
@@ -47,6 +48,8 @@ export class Game {
   rally = 0; record = loadRecord(); deadTimer = 0; time = 0; serveTime = 0;
   swing: Swing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
   cue: Cue | null = null; private lastCue: Cue | null = null; marker: CueMarker; perfects = 0;
+  stamina = new Stamina(); private tired = false; private staSent = -1;   // fôlego: gasta correndo; sem fôlego a corrida fica mais lenta
+  onStamina: (v: number, mul: number) => void = () => {};
   lastLaunch: { pass: number; want: string | null; ms: number } | null = null;   // diagnóstico: como a última bola foi escolhida
   intent: string | null = null; recent: string[] = [];   // golpe (chave de STROKES) que a bola lançada prepara; últimos golpes usados (variedade)
   cam = { yaw: 0, pitch: CAM_PITCH, dist: S.camDist };   // câmera em órbita em torno da jogadora: giro (360°), inclinação e distância (zoom)
@@ -150,6 +153,9 @@ export class Game {
     b.vx = speed * Math.cos(th) * ux; b.vy = speed * Math.sin(th); b.vz = speed * Math.cos(th) * uz; b.bounces = 0;
   }
 
+  /** fração da velocidade máxima que o fôlego atual permite (1 = descansada) */
+  private speedMul(): number { return S.stamina ? this.stamina.mul() : 1; }
+
   // ---------- tempo e posição ----------
   private reachR(): number { return S.assist * (S.auto ? 1.6 : 1); }   // raio em que o golpe ainda leva a jogadora ao ponto certo
 
@@ -247,12 +253,12 @@ export class Game {
   private computeCue(): void {
     this.cue = null; if (this.state !== "rally" || (this.swing && !this.swing.contacted)) return;
     const p = this.rig.root.position, prev = this.lastCue, lock = this.lockLeft(), last = this.recent[this.recent.length - 1];
-    let best: Cue | null = null, keep: Cue | null = null, near: Cue | null = null;
+    let best: Cue | null = null, keep: Cue | null = null, near: Cue | null = null; const needMax = NEED_MAX * (0.5 + 0.5 * this.speedMul());
     for (const smp of predict(this.ball, this.tun, 5, 1 / 120)) {
       for (const c of this.evalSample(smp, p.x, p.z, lock)) {
         const mk = (cost: number): Cue => ({ arrival: this.time + smp.t, press: this.time + smp.t - c.prep, prep: c.prep, x1: c.x1, z1: c.z1, smp, clip: c.clip, kind: c.kind, key: c.key, shift: c.shift, cost });
-        if (prev && prev.clip === c.clip && Math.abs(prev.arrival - (this.time + smp.t)) < 0.1 && this.time < prev.arrival && c.need <= NEED_MAX * 1.3) { const k = mk(Math.abs(prev.arrival - (this.time + smp.t))); if (!keep || k.cost < keep.cost) keep = k; }
-        if (c.need > NEED_MAX) { const k = mk(c.need); if (!near || k.cost < near.cost) near = k; continue; }
+        if (prev && prev.clip === c.clip && Math.abs(prev.arrival - (this.time + smp.t)) < 0.1 && this.time < prev.arrival && c.need <= needMax * 1.3) { const k = mk(Math.abs(prev.arrival - (this.time + smp.t))); if (!keep || k.cost < keep.cost) keep = k; }
+        if (c.need > needMax) { const k = mk(c.need); if (!near || k.cost < near.cost) near = k; continue; }
         const cost = 0.35 * smp.t + 1.6 * c.need / NEED_MAX + 0.12 * Math.max(0, c.z1 - 4.6) + 1.2 * c.dy + (smp.t < c.prep + lock ? 1 : 0) + (smp.bounces > 1 ? 1.5 * (smp.bounces - 1) : 0)   // 2º quique é último recurso
           - (c.key === this.intent ? 1.5 : 0) + (c.key === last ? 0.3 : 0);                                                              // prefere o golpe que a bola foi preparada para ter; evita repetir o último
         if (!best || cost < best.cost) best = mk(cost);
@@ -264,7 +270,7 @@ export class Game {
   /** a bola (trajetória smps, já prevista) passa por um ponto rebatível com o golpe `want` (chave de STROKES; null = golpe de base depois do 1º quique),
    *  perto o bastante e com tempo de sobra? (relaxed: aceita corrida maior e quique 1–2) */
   private hittableOn(smps: Sample[], lvl: number, want: string | null): boolean {   // lvl 0 = confortável, 1 = corrida maior e quique 1–2, 2 = último recurso
-    const p = this.rig.root.position, need = [NEED_OK, NEED_RELAX, NEED_MAX][lvl], lock = this.lockLeft(), maxB = lvl >= 1 ? 2 : 1, zMax = [4.8, 5.3, 5.9][lvl], tMin = lvl >= 2 ? 0.75 : 1.0;
+    const p = this.rig.root.position, need = [NEED_OK, NEED_RELAX, NEED_MAX][lvl] * (0.5 + 0.5 * this.speedMul()), lock = this.lockLeft(), maxB = lvl >= 1 ? 2 : 1, zMax = [4.8, 5.3, 5.9][lvl], tMin = lvl >= 2 ? 0.75 : 1.0;
     const any = want === "*", only = want && !any ? want : undefined; let yLo = 0.8, yHi = 1.25; if (any) { yLo = 0.4; yHi = 2.5; } else if (only) { this.candList(only); const r = this.yRange.get(only); if (!r) return false; [yLo, yHi] = r; }
     for (const smp of smps) {
       if (smp.t < tMin || smp.bounces > maxB || smp.y < yLo || smp.y > yHi) continue;
@@ -342,6 +348,7 @@ export class Game {
   // ---------- contato ----------
   private doContact(sw: Swing): void {
     if (sw.preview) return;
+    if (S.stamina) this.stamina.drain(sw.kind === "serve" ? 0.02 : sw.kind === "over" || sw.kind === "smash" ? 0.03 : 0.012);   // bater cansa (golpes por cima mais)
     const act = this.swingAct!; act.time = Math.min(sw.contactT, sw.duration - 1e-3);
     this.rig.root.position.set(sw.x1, 0, sw.z1);
     this.rig.mixer.update(0); this.rig.root.updateMatrixWorld(true); this.rig.fixRacket(this.rig.faceAssist); this.rig.root.updateMatrixWorld(true);
@@ -386,7 +393,7 @@ export class Game {
   }
 
   private kill(msg: string): void {
-    if (this.state !== "rally") return; if (this.swing && !this.swing.contacted) this.swing = null; this.state = "dead"; this.deadTimer = 1.4; this.onToast(`${msg} — rali ${this.rally}`); this.emit("dead", { msg, rally: this.rally }); this.onHud();
+    if (this.state !== "rally") return; if (this.swing && !this.swing.contacted) this.swing = null; this.state = "dead"; this.deadTimer = 1.4; this.stamina.restore(0.25); this.onToast(`${msg} — rali ${this.rally}`); this.emit("dead", { msg, rally: this.rally }); this.onHud();
   }
 
   // ---------- loop ----------
@@ -398,11 +405,15 @@ export class Game {
     if (!this.swing && !this.viewer) {
       const cyw = Math.cos(this.cam.yaw), syw = Math.sin(this.cam.yaw);   // direcional relativo à câmera (com a câmera atrás da jogadora: frente = parede)
       const mx = -this.input.right * cyw + this.input.fwd * syw, mz = this.input.fwd * cyw + this.input.right * syw;
-      const tx = mx * MAX_SIDE, tz = mz * (mz >= 0 ? MAX_SPEED : MAX_BACK); const k = Math.min(1, 10 * dt);
+      const sm = this.speedMul(), tx = mx * MAX_SIDE * sm, tz = mz * (mz >= 0 ? MAX_SPEED : MAX_BACK) * sm; const k = Math.min(1, 10 * dt);
       this.vx += (tx - this.vx) * k; this.vz += (tz - this.vz) * k;
       p.x = THREE.MathUtils.clamp(p.x + this.vx * dt, -4.6, 4.6); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, -5, 6.5);
     }
 
+    if (S.stamina) {
+      this.stamina.update(dt, Math.hypot(this.vx, this.vz), this.state === "dead" || this.state === "wait" || !!this.viewer);
+      if (!this.tired && this.stamina.value < 0.12) { this.tired = true; this.onToast("Sem fôlego!"); } else if (this.tired && this.stamina.value > 0.4) this.tired = false;
+    } else this.stamina.reset();
     if (this.state === "rally") {
       this.advance(dt);
       const b = this.ball;
@@ -468,6 +479,7 @@ export class Game {
     this.playerShadow.position.set(p.x, 0.01, p.z);
     const c = this.cue, v = c ? { ttp: c.press - this.time, reach: c.shift <= this.reachR(), win: WIN.good * S.timing, label: strokeOf(c.clip)?.label ?? "" } : null;
     this.marker.update(c && v ? { x: c.x1, z: c.z1, ...v } : null, this.ballMesh.position); this.onCue(v);
+    const sta = this.stamina.value; if (Math.abs(sta - this.staSent) > 0.004) { this.staSent = sta; this.onStamina(sta, this.stamina.mul()); }
     this.setCamera(false, dt);
   }
 

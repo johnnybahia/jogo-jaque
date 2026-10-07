@@ -1,10 +1,10 @@
 export interface Settings {
-  auto: boolean; autoServe: boolean; footprints: boolean; footLife: number; assist: number; hitRadius: number; ballSpeed: number; aimSpread: number; timing: number;
+  auto: boolean; autoServe: boolean; stamina: boolean; footprints: boolean; footLife: number; assist: number; hitRadius: number; ballSpeed: number; aimSpread: number; timing: number;
   contactOffset: number; ballVisual: number; eSand: number; eWall: number; playerScale: number; timeScale: number;
   faceAssist: number; camSens: number; camDist: number; rkX: number; rkY: number; rkZ: number; rkRX: number; rkRY: number; rkRZ: number;
 }
 export const DEFAULTS: Settings = {
-  auto: false, autoServe: true, footprints: true, footLife: 25, assist: 0.55, hitRadius: 0.32, ballSpeed: 12.5, aimSpread: 1.2, timing: 1,
+  auto: false, autoServe: true, stamina: true, footprints: true, footLife: 25, assist: 0.55, hitRadius: 0.32, ballSpeed: 12.5, aimSpread: 1.2, timing: 1,
   contactOffset: 0, ballVisual: 3.5, eSand: 0.88, eWall: 0.62, playerScale: 1.75, timeScale: 1,
   faceAssist: 1, camSens: 1, camDist: 5, rkX: 0, rkY: 0, rkZ: 0, rkRX: 0, rkRY: 0, rkRZ: 0,
 };
