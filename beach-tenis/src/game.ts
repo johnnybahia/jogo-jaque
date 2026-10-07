@@ -8,6 +8,7 @@ import { Footprints } from "./footprints";
 import { CueMarker } from "./cuemark";
 import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
 import { Stamina } from "./stamina";
+import { fitCost } from "./fit";
 import { PoseFX } from "./posefx";
 import { WallFx } from "./wallfx";
 import { Dust } from "./dust";
@@ -318,6 +319,7 @@ export class Game {
         if (prev && prev.clip === c.clip && Math.abs(prev.arrival - (this.time + smp.t)) < 0.1 && this.time < prev.arrival && c.need <= needMax * 1.3) { const k = mk(Math.abs(prev.arrival - (this.time + smp.t))); if (!keep || k.cost < keep.cost) keep = k; }
         if (c.need > needMax) { const k = mk(c.need); if (!near || k.cost < near.cost) near = k; continue; }
         const cost = 0.35 * smp.t + 1.6 * c.need / NEED_MAX + (this.match ? 0 : 0.12 * Math.max(0, c.z1 - 4.6)) + 1.2 * c.dy + (smp.t < c.prep + lock ? 1 : 0)
+          + fitCost(c.key, smp.y, p.x - smp.x, smp.z - p.z)                                                                    // golpe certo para a altura e o lado da bola (a direita da jogadora é −x)
           - (c.key === this.intent ? 1.5 : 0) + (c.key === last ? 0.3 : 0);                                                              // prefere o golpe que a bola foi preparada para ter; evita repetir o último
         if (!best || cost < best.cost) best = mk(cost);
       }
@@ -371,14 +373,16 @@ export class Game {
     if (!legs.length) { done(null, -1, null); return; }
     const w1 = this.pickIntent(), w2 = w1 ? this.pickIntent(w1) : null;
     const lock = this.lockLeft(), mul = 0.5 + 0.5 * this.speedMul(), reach = this.reachR(), ts = S.timeScale, pace = THREE.MathUtils.clamp(Math.sqrt(S.ballSpeed / speed), 0.85, 1.12);
-    const ZMAX = [4.8, 5.3, 5.9], clamp = THREE.MathUtils.clamp;
+    const ZMAX = [4.8, 5.3, 5.9], FITMAX = [0.3, 0.9, 1e9], clamp = THREE.MathUtils.clamp;
     for (let a = 0; a < 60; a++) {   // 0–27: corrida confortável; 28–43: maior; 44–59: qualquer golpe, no limite
       const lvl = a < 28 ? 0 : a < 44 ? 1 : 2, want = lvl === 2 ? null : a % 3 === 2 ? (w2 ?? w1) : w1, list = this.candList(want ?? undefined);
       const c = list.length ? list[(Math.random() * list.length) | 0] : DEFAULT_CAND, leg = legs[(Math.random() * legs.length) | 0];
       const Tr = Math.max((c.cy >= 1.6 ? rnd(1.0, 1.4) : rnd(0.8, 1.15)) * pace, (this.tun.wallZ - p.z - c.cz - 2) / 11),   // lá no fundo a devolução precisa de mais tempo para chegar
          lim = [NEED_OK, NEED_RELAX, NEED_MAX][lvl] * mul, ta = Math.max(0.15, leg.w.t + Tr - lock - c.prep / ts - 0.1);
       const shift = Math.min(3.4, reach + lim * ta) * (lvl === 0 ? rnd(0.1, 0.85) : rnd(0, 0.95)), th = rnd(0, 2 * Math.PI);
-      const b = this.planReturn(leg, c, clamp(p.x + shift * Math.sin(th), -4.3, 4.3), clamp(p.z + shift * Math.cos(th), -4.6, ZMAX[lvl]), Tr, lim, lock);
+      const x1 = clamp(p.x + shift * Math.sin(th), -4.3, 4.3), z1 = clamp(p.z + shift * Math.cos(th), -4.6, ZMAX[lvl]);
+      if (fitCost(c.key, c.cy, p.x - (x1 + c.cx), z1 + c.cz - p.z) > FITMAX[lvl]) continue;   // a bola tem de chegar do lado e na altura em que esse golpe é o certo
+      const b = this.planReturn(leg, c, x1, z1, Tr, lim, lock);
       if (b) { done(b, lvl, c.key); return; }
     }
     // último recurso: a bola vem exatamente no ponto de contato de um golpe de base, onde a jogadora está

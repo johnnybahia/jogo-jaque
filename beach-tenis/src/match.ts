@@ -7,6 +7,7 @@ import { MATCH, NET_H } from "./scene";
 import { BALL_R, Ball, Sample, Tun, predict, solveShot } from "./physics";
 import { INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex, strokeOf } from "./strokes";
 import { S } from "./settings";
+import { fitCost } from "./fit";
 
 /** nível da adversária: velocidade máxima (m/s), tempo de reação (s), chance de errar, quão difícil ela coloca a bola (× alcance), esperteza (deixa passar bola fora) */
 export interface Level { id: string; label: string; speed: number; react: number; err: number; diff: number; smart: number; reach: number; }
@@ -32,7 +33,8 @@ export interface ScoreView { server: Side; games: [number, number]; sets: [numbe
 /** Partida: placar, regras de ponto (rede, fora, bola na areia), golpe por cima da rede e a IA da adversária */
 export class Match {
   score: Score; lastHitter: Side = 0; hitId = 0; over: Side | null = null;
-  stats = { plans: 0, noPlan: 0, letGo: 0, whiff: 0, miss: 0, hit: 0, err: 0, serves: 0 };   // diagnóstico da IA
+  stats = { plans: 0, noPlan: 0, letGo: 0, whiff: 0, miss: 0, hit: 0, err: 0, soft: 0, serves: 0 };   // diagnóstico da IA
+  lastPick: { key: string; y: number; lat: number; ahead: number; shift: number } | null = null;        // diagnóstico: último golpe escolhido pela adversária e onde a bola chega em relação ao corpo dela
   private plan: AIPlan | null = null; private planned = -1; private hitAt = 0; private letGo = false; serveBy: Side = 0;
   private toss: { rel: number; apex: number; hx: number; hy: number; hz: number; cx: number; cy: number; cz: number } | null = null;
   private tmp = new THREE.Vector3(); private noNet: Tun;
@@ -123,7 +125,7 @@ export class Match {
     this.plan = null; this.letGo = false; this.stats.plans++;
     const smps = predict(g.ball, g.tun, 5, 1 / 120, true), last = smps[smps.length - 1];
     if (last && last.y <= BALL_R + 0.02 && !inCourt(last.x, last.z) && Math.random() < lv.smart) { this.letGo = true; this.stats.letGo++; return; }   // vai cair fora: deixa passar
-    let best: { cost: number; smp: { t: number; x: number; y: number; z: number }; c: Cand; x1: number; z1: number; need: number } | null = null;
+    let best: { cost: number; smp: { t: number; x: number; y: number; z: number }; c: Cand; x1: number; z1: number; need: number; lat: number; ahead: number; shift: number } | null = null;
     const cands = g.candList();
     for (const smp of smps) {
       if (smp.vz < 0.2 || smp.z < MATCH.netZ + 0.5 || smp.y < 0.3 || smp.y > 2.3 || smp.t < lv.react + 0.3) continue;
@@ -133,11 +135,13 @@ export class Match {
         if (Math.abs(x1) > 5.2 || z1 < MATCH.netZ + 0.8 || z1 > MATCH.len + 3.5) continue;
         const shift = Math.hypot(x1 - o.x, z1 - o.z), need = Math.max(0, shift - lv.reach) / Math.max(0.05, smp.t - lv.react - 0.6 * c.prep / ts - 0.1);   // o golpe acelera até 1,9× (preparo comprimido)
         if (need > cap) continue;
-        const cost = 0.3 * smp.t + 1.5 * need / cap + 1.2 * dy - (INTENT_W[c.key] ?? 1) * 0.12 + Math.random() * 0.25;
-        if (!best || cost < best.cost) best = { cost, smp, c, x1, z1, need };
+        const lat = smp.x - o.x, ahead = o.z - smp.z;   // a direita dela é +x e a frente, −z
+        const cost = 0.3 * smp.t + 1.5 * need / cap + 1.2 * dy - (INTENT_W[c.key] ?? 1) * 0.12 + Math.random() * 0.25 + fitCost(c.key, smp.y, lat, ahead);   // golpe certo para a altura e o lado da bola
+        if (!best || cost < best.cost) best = { cost, smp, c, x1, z1, need, lat, ahead, shift };
       }
     }
     if (!best) { this.stats.noPlan++; return; }
+    this.lastPick = { key: best.c.key, y: best.smp.y, lat: best.lat, ahead: best.ahead, shift: best.shift };
     const stretch = clamp(best.need / cap, 0, 1), pErr = lv.err * (0.5 + 1.1 * stretch), r = Math.random();
     this.plan = { arrival: g.time + best.smp.t, startAt: g.time + best.smp.t - 0.8 * best.c.prep / ts, x1: best.x1, z1: best.z1, clip: best.c.clip, key: best.c.key, kind: best.c.kind, whiff: r < pErr * 0.35, err: r >= pErr * 0.35 && r < pErr, stretch };
   }
@@ -177,6 +181,7 @@ export class Match {
       const lim = (a < 28 ? NEED_OK : NEED_RELAX) * mulP, ta = Math.max(0.15, Tf - lock - c.prep / ts - 0.1), shiftMax = Math.min(3.4, reachP + lim * ta);
       const shift = shiftMax * Math.min(1.3, lv.diff * rnd(0.15, 1.05)), th = rnd(0, 2 * Math.PI);
       const px = clamp(pl.x + shift * Math.sin(th), -3.8, 3.8), pz = clamp(pl.z + shift * Math.cos(th), 0.4, MATCH.netZ - 1.2);
+      if (fitCost(c.key, c.cy, pl.x - (px + c.cx), pz + c.cz - pl.z) > (a < 20 ? 0.3 : a < 32 ? 0.9 : 1e9)) continue;   // a bola chega do lado e na altura em que esse golpe é o certo para ela
       const C = new THREE.Vector3(px + c.cx, c.cy, pz + c.cz), v = solveShot(H, C, Tf);
       if (Math.hypot(v.vx, v.vy, v.vz) > 30) continue;
       const bb: Ball = { x: H.x, y: H.y, z: H.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null };
@@ -189,7 +194,7 @@ export class Match {
       if (shift <= shiftMax) { let ok = false; for (const e of g.evalSample(atC, pl.x, pl.z, lock, c.key)) if (e.clip === c.clip && e.dy <= 0.14 && e.need <= lim) { ok = true; break; } if (!ok) continue; }
       Object.assign(b, { x: H.x, y: H.y, z: H.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null }); this.lastHitter = 1; this.hitId++; return;
     }
-    this.aiError(H, serve, true);   // nada serviu (raro): bola simples no meio
+    this.stats.soft++; this.aiError(H, serve, true);   // nada serviu (raro): bola simples no meio
   }
 
   /** erro da adversária: bola na rede (baixa) ou fora (longa/aberta); com `soft`, uma bola mansa no meio */
