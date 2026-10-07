@@ -1,6 +1,7 @@
 import { Game } from "./game";
 import { S, DEFAULTS, saveSettings, Settings } from "./settings";
 import { cueState, cueProgress } from "./cuemark";
+import { mountPwaUI } from "./pwaui";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type Spec = { key: keyof Settings; label: string; min: number; max: number; step: number; recalc?: boolean };
@@ -67,8 +68,10 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   const panel = $("panel"); $("gear").addEventListener("click", () => { panel.hidden = !panel.hidden; if (!panel.hidden) renderLog(); });
   const logEl = document.createElement("pre");
   const renderLog = () => { logEl.textContent = game.log.filter((l) => l.type === "contact" || l.type === "swing" || l.type === "dead").slice(-14).map((l) => JSON.stringify(l)).join("\n"); };
+  const pwaBox = document.createElement("div"); pwaBox.id = "pwaBox";
+  mountPwaUI($("installChip") as HTMLButtonElement, pwaBox, () => { panel.hidden = false; renderLog(); });
   const build = () => {
-    panel.innerHTML = `<b>Beach Tênis</b> <small>v${version}</small>`;
+    panel.innerHTML = `<b>Beach Tênis</b> <small>v${version}</small>`; panel.appendChild(pwaBox);
     const chk = (key: "auto" | "autoServe" | "footprints", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); }; panel.appendChild(l); };
     chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("footprints", "Marcas dos pés na areia");
     for (const [title, specs] of SPECS) {

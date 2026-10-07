@@ -22,12 +22,12 @@ export function buildEnvironment(scene: THREE.Scene, base: string): void {
   // texturas PBR de areia (Poly Haven "aerial_beach_01", CC0) — opcionais: se faltarem, fica a procedural
   const fm = floor.material as THREE.MeshStandardMaterial;
   const tl = new THREE.TextureLoader(); const rep = (t: THREE.Texture, srgb: boolean) => { if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30); t.anisotropy = 8; return t; };
-  fetch(base + "textures/sand.jpg", { method: "HEAD" }).then((r) => {
-    if (!r.ok) return;
-    tl.load(base + "textures/sand.jpg", (t) => { fm.map = rep(t, true); fm.needsUpdate = true; });
-    tl.load(base + "textures/sand_nor.jpg", (t) => { fm.normalMap = rep(t, false); fm.normalScale.set(0.8, 0.8); fm.needsUpdate = true; });
-    tl.load(base + "textures/sand_rough.jpg", (t) => { fm.roughnessMap = rep(t, false); fm.needsUpdate = true; });
-  }).catch(() => {});
+  // carrega direto (GET passa pelo service worker, então funciona offline); se a base falhar, fica a procedural
+  tl.load(base + "textures/sand.jpg", (t) => {
+    fm.map = rep(t, true); fm.needsUpdate = true;
+    tl.load(base + "textures/sand_nor.jpg", (n) => { fm.normalMap = rep(n, false); fm.normalScale.set(0.8, 0.8); fm.needsUpdate = true; });
+    tl.load(base + "textures/sand_rough.jpg", (r) => { fm.roughnessMap = rep(r, false); fm.needsUpdate = true; });
+  });
 
   const faceTex = canvasTex(512, 256, (c) => {
     c.fillStyle = "#f4f1ea"; c.fillRect(0, 0, 512, 256);
