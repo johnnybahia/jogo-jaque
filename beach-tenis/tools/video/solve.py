@@ -89,7 +89,8 @@ ANKLE_H = 0.054
 # comprimido acima de A0 (lateral e frente/trás separados) e o quadril sobe CP da diferença para a perna não dobrar mais por isso
 LEG_LAT_A0, LEG_LAT_K = np.radians(20), 0.40
 LEG_FB_A0, LEG_FB_K = np.radians(30), 0.45
-LEG_CP = 0.7
+LEG_CP = 0.45
+STANCE_S0, STANCE_K = 0.20, 0.30   # separação lateral dos tornozelos (unid. do esqueleto ≈ 0,57 m no jogo): acima de S0 só passa K do excesso (apoio largo demais abre a saia)
 LEG_POLE_W, LEG_TOE_MAX = 0.65, 12      # joelho segue o rumo do pé (peso máximo) e abertura máxima do pé em relação à pelve (°)
 
 def planted(extra, s, still_lo=0.30, still_hi=0.70, gap_ok=0.30, gap_soft=0.15):
@@ -161,14 +162,20 @@ def solve(dirs, s_px, extra, fps=30, sig=1.2, yaw0=None):
     latH = np.einsum('tij,j->ti', Dh, np.array([1.0, 0, 0])); latH[:, 2] = 0; latH = unit(latH)
     fwdH = np.einsum('tij,j->ti', Dh, np.array([0, -1.0, 0])); fwdH[:, 2] = 0; fwdH = unit(fwdH)
     need_hz = np.full(T, -1.0)
+    vleg0 = {sd: vleg[sd].copy() for sd in vleg}                                               # antes de qualquer compressão (o comprimento da perna vem daqui)
+    aLat = {sd: np.einsum('ti,ti->t', off[sd] + vleg[sd], latH) for sd in ('Left', 'Right')}   # posição lateral do tornozelo em relação ao centro da pelve
+    Ssep = aLat['Left'] - aLat['Right']; S2 = np.where(Ssep > STANCE_S0, STANCE_S0 + (Ssep - STANCE_S0) * STANCE_K, Ssep); rS = np.where(Ssep > 1e-6, S2 / np.maximum(Ssep, 1e-6), 1.0)
+    cenS = (aLat['Left'] + aLat['Right']) / 2
+    for sd in ('Left', 'Right'): vleg[sd] = vleg[sd] + latH * (cenS + (aLat[sd] - cenS) * rS - aLat[sd])[:, None]   # apoio mais estreito: os dois pés se aproximam do centro
     for wi, (sd, *_ ) in enumerate(sides):
         vl = vleg[sd]; sg = 1.0 if sd == 'Left' else -1.0
         lo = sg * np.einsum('ti,ti->t', vl, latH); fb = np.einsum('ti,ti->t', vl, fwdH)           # lo > 0: perna aberta para fora; fb > 0: para a frente
+        lo0 = sg * np.einsum('ti,ti->t', vleg0[sd], latH); fb0 = np.einsum('ti,ti->t', vleg0[sd], fwdH)
         pl = wpl[:, wi]; dr = np.where(pl > 0.5, np.maximum(hz0 - ANKLE_H, 0.05), np.maximum(-vl[:, 2], 0.05))
         al = np.arctan2(np.maximum(lo, 0), dr); al2 = np.where(al > LEG_LAT_A0, LEG_LAT_A0 + (al - LEG_LAT_A0) * LEG_LAT_K, al)
         af = np.arctan2(np.abs(fb), dr); af2 = np.where(af > LEG_FB_A0, LEG_FB_A0 + (af - LEG_FB_A0) * LEG_FB_K, af)
         lo2 = np.where(lo > 0, dr * np.tan(al2), lo); fb2 = np.sign(fb) * dr * np.tan(af2)
-        chord = np.sqrt(dr ** 2 + np.maximum(lo, 0) ** 2 + fb ** 2); dr_t = np.sqrt(np.maximum(chord ** 2 - np.maximum(lo2, 0) ** 2 - fb2 ** 2, 0))   # perna com o mesmo comprimento de antes
+        chord = np.sqrt(dr ** 2 + np.maximum(lo0, 0) ** 2 + fb0 ** 2); dr_t = np.sqrt(np.maximum(chord ** 2 - np.maximum(lo2, 0) ** 2 - fb2 ** 2, 0))   # perna com o mesmo comprimento de antes
         need_hz = np.where(pl > 0.5, np.maximum(need_hz, ANKLE_H + dr_t), need_hz)
         vleg[sd] = vl + latH * (sg * (lo2 - lo))[:, None] + fwdH * (fb2 - fb)[:, None]
     # deslocamento horizontal da pelve a partir dos pés plantados (pés parados no mundo)
