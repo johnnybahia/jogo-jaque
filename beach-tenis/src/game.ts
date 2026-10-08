@@ -9,6 +9,7 @@ import { Quality } from "./quality";
 import type { Atmosphere } from "./atmosphere";
 import type { Net } from "./net";
 import type { Post } from "./post";
+import { Fx, type Swinger } from "./fx";
 import { Props } from "./props";
 import { CueMarker } from "./cuemark";
 import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
@@ -85,7 +86,7 @@ export class Game {
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
-  shadowsOn = false; private post: Post | null = null; private postWanted = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
+  vfx!: Fx; lastKind = ""; lastKey = ""; private swingers = new Map<object, Swinger>(); shadowsOn = false; private post: Post | null = null; private postWanted = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
   readonly quality = new Quality(); atm!: Atmosphere; net!: Net; props!: Props; private courtMask!: { value: number };   // hora do dia: céu, mar, luz e névoa; rede com pano; adereços da praia
 
   constructor(canvas: HTMLCanvasElement) {
@@ -99,7 +100,7 @@ export class Game {
     this.ballShadow = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), bm); this.ballShadow.rotation.x = -Math.PI / 2; this.ballShadow.position.y = 0.012; this.scene.add(this.ballShadow);
     this.ballMesh = new THREE.Group(); this.ballMesh.add(new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 20, 14), new THREE.MeshStandardMaterial({ color: 0xd8f23a, emissive: 0x6a7a10, roughness: 0.7 }))); this.scene.add(this.ballMesh);
     this.ballMesh.visible = false; this.ballShadow.visible = false;
-    this.marker = new CueMarker(this.scene); this.wallFx = new WallFx(this.scene); this.dust = new Dust(this.scene); this.foot.onPlant = (x, z, sp) => this.dust.puff(x, z, sp);
+    this.vfx = new Fx(this.scene, this.camera, this.renderer); this.marker = new CueMarker(this.scene); this.wallFx = new WallFx(this.scene); this.dust = new Dust(this.scene); this.foot.onPlant = (x, z, sp) => this.dust.puff(x, z, sp);
     this.applyQuality();
   }
 
@@ -175,6 +176,7 @@ export class Game {
       if (m.dancer.start(m.rig, c)) { any = true; if (m.body) { m.body.react = 0; m.body.vx = m.body.vz = 0; } }
     });
     if (!any) return false;
+    { let cx = 0, cz = 0; for (const m of team) { cx += m.rig.root.position.x; cz += m.rig.root.position.z; } this.vfx.confetti(cx / team.length, cz / team.length, 220, 5, 5.2); }
     this.danceWho = winner; this.lastDance = first; this.react = 0; this.swing = null; this.vx = this.vz = 0;
     this.camPrev = { ...this.cam }; this.camUser = -99; this.emit("dance", { winner, clip: first, n: team.length });
     return true;
@@ -209,14 +211,16 @@ export class Game {
   }
 
   /** fim do ponto na partida: placar, reações e volta aos lugares */
-  endPoint(winner: Side, reason: string, r: PointResult): void {
+  endPoint(winner: Side, reason: string, r: PointResult, tag?: string): void {
     const m = this.match; if (!m || (this.state !== "rally" && this.state !== "serve")) return;
     if (this.swing && !this.swing.contacted) this.swing = null;
     this.state = "dead"; this.ball.ret = null;
     this.react = r.match !== undefined ? (winner === 0 ? 0 : 1) : winner === 0 ? (this.rally >= 8 || r.game !== undefined ? 2 : 0) : this.rally < 3 ? 1 : 0; this.reactT = 0; this.deadTimer = [1.6, 1.9, 2.6][this.react]; this.walkAt = [0.7, 1.1, 1.9][this.react];   // fim da partida: quem perde suspira e quem ganha dança
     this.stamina.restore(0.25); for (const o of this.aiBodies()) o.stamina.restore(0.25);
     const v = m.view(), pts = `${v.points[0]} – ${v.points[1]}`;
-    this.onToast(`${winner === 0 ? "Ponto!" : "Ponto da adversária"} — ${reason}`, r.match !== undefined ? "Fim da partida" : r.set !== undefined ? "Set!" : r.game !== undefined ? `Game ${v.games[0]}–${v.games[1]}` : `${pts} · rali ${this.rally}`);
+    const more = r.match !== undefined ? "Fim da partida" : r.set !== undefined ? "Set!" : r.game !== undefined ? `Game ${v.games[0]}–${v.games[1]}` : `${pts} · rali ${this.rally}`;
+    if (tag) this.onToast(tag, `${winner === 0 ? "Ponto!" : "Ponto da adversária"} · ${more}`); else this.onToast(`${winner === 0 ? "Ponto!" : "Ponto da adversária"} — ${reason}`, more);
+    if (winner === 0) { const t = this.dancersOf(0); let cx = 0, cz = 0; for (const m of t) { cx += m.rig.root.position.x; cz += m.rig.root.position.z; } this.vfx.confetti(cx / t.length, cz / t.length, r.game !== undefined ? 70 : 26, 2.2, 3.4); }
     this.emit("point", { winner, reason, rally: this.rally, games: v.games, points: v.points }); this.onScore(v); this.onHud();
   }
 
@@ -238,6 +242,7 @@ export class Game {
   /** aplica o nível de qualidade (resolução agora; sombras, pós e adereços nas próximas fases) */
   applyQuality(): void {
     this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio)); this.resize();
+    this.vfx.level = this.quality.tier === "alta" ? 1 : this.quality.tier === "media" ? 0.7 : 0.4;
     this.atm.clouds = this.quality.tier !== "baixa"; this.atm.waves = this.quality.tier === "baixa" ? 0.5 : 1; this.props.setTier(this.quality.tier);
     // sombra do sol: Média 1024, Alta 2048; Baixa só as manchas
     const on = this.quality.tier !== "baixa", size = this.quality.tier === "alta" ? 2048 : 1024, sun = this.atm.sun;
@@ -536,11 +541,13 @@ export class Game {
     this.info = `${strokeOf(sw.clip)?.label ?? sw.clip} · erro ${Math.round(sw.err * 1000)} ms · distância ${Math.round(gap * 100)} cm`;
     if (sw.kind !== "serve" && gap > S.hitRadius) { this.onToast(sw.msg ?? (sw.err > 0 ? "Cedo!" : "Tarde!")); this.onHud(); return; }
     b.x = H.x; b.y = Math.max(H.y, BALL_R); b.z = H.z;                       // a bola encosta na face da raquete
+    this.lastKind = sw.kind; this.lastKey = strokeOf(sw.clip)?.key ?? "";
     if (sw.kind === "serve") {   // saque: a bola vai para a parede e o rali começa
       if (this.match) this.match.playerShot(H, sw.clip, 1, this.input.right * -1, true); else this.launch(THREE.MathUtils.clamp(H.x + (Math.random() - 0.5) * 2.4, -2.5, 2.5), S.ballSpeed * 1.05, false);
-      this.state = "rally"; this.rally = 0; this.serveTime = this.time; this.lastCue = null; this.onToast("Saque!"); this.onHud(); return;
+      this.vfx.hit(H.x, H.y, H.z, 1, "serve"); this.state = "rally"; this.rally = 0; this.serveTime = this.time; this.lastCue = null; this.onToast("Saque!"); this.onHud(); return;
     }
     const e = Math.abs(sw.err) / S.timing, q = e <= WIN.perfect ? 2 : e <= WIN.good ? 1 : 0;   // 2 perfeito, 1 bom, 0 fraco (cedo/tarde)
+    this.vfx.hit(H.x, H.y, H.z, q, sw.kind);
     const aim = this.input.right * -1;
     const spread = S.aimSpread * (q === 2 ? 0.4 : q === 1 ? 1 : 1.6);
     const tx = THREE.MathUtils.clamp(aim * 2.4 + (Math.random() - 0.5) * 2 * spread * (Math.abs(aim) > 0.3 ? 0.3 : 1), -2.6, 2.6);
@@ -569,6 +576,7 @@ export class Game {
   private handleEvent(ev: string | null): void {
     if (!ev) return;
     if (ev === "net") this.net.hit(this.ball.x, this.ball.y, 9);   // o pano balança a partir de onde a bola bateu
+    if (ev === "sand") this.vfx.sand(this.ball.x, this.ball.z, Math.hypot(this.ball.vx, this.ball.vy, this.ball.vz));
     if (this.match) { if (this.state === "rally") { if (ev === "sand") this.match.onSand(); else if (ev === "net") this.match.onNet(); } return; }   // partida: o 1º toque na areia ou a rede decide o ponto
     if (ev === "wall") { this.wallFx.spawn(this.ball.x, this.ball.y, this.tun.wallZ - 0.03); this.emit("wall", { z: +this.ball.z.toFixed(2), y: +this.ball.y.toFixed(2) }); if (this.state === "rally" && this.ball.y < NET_H - 0.03) this.kill("Na rede"); }
     if (ev === "wallout" && this.state === "rally") this.kill("Fora da parede");
@@ -645,7 +653,11 @@ export class Game {
     this.foot.update(dt, fsp);
     this.syncVisuals(dt);
     this.atm.setTarget(this.cover ? 0.8 : S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
+    const live = this.ballMesh.visible ? this.ball : null, sws: Swinger[] = [this.swinger(this.rig, !!this.swing)]; if (this.mode === "match") for (const o of this.aiBodies()) sws.push(this.swinger(o.rig, !!o.swing));
+    this.vfx.update(dt, live, sws);
   }
+
+  private swinger(r: { head: THREE.Object3D; racket: THREE.Object3D }, on: boolean): Swinger { let s = this.swingers.get(r); if (!s) { s = { key: r, head: r.head, racket: r.racket, on }; this.swingers.set(r, s); } s.on = on; return s; }
 
   private animate(dt: number): void {
     const R = this.rig; const target = this.swing ? 1 : 0;

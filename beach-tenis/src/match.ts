@@ -44,7 +44,7 @@ interface Target { human: boolean; ai?: Ai; }
 /** Partida (single ou duplas): placar, regras de ponto (rede, fora, bola na areia), golpe por cima da rede e a IA das adversárias e da parceira.
  *  Lados: 0 = a jogadora (e a parceira), z de 0 a 8; 1 = as adversárias, z de 8 a 16. */
 export class Match {
-  score: Score; lastHitter: Side = 0; hitId = 0; over: Side | null = null;
+  score: Score; lastHitter: Side = 0; hitId = 0; private hits0 = 0; over: Side | null = null;
   stats = { plans: 0, noPlan: 0, letGo: 0, whiff: 0, miss: 0, hit: 0, err: 0, soft: 0, serves: 0 };   // diagnóstico da IA
   lastPick: { key: string; y: number; lat: number; ahead: number; shift: number } | null = null;        // diagnóstico: último golpe escolhido por uma IA e onde a bola chega em relação ao corpo dela
   readonly doubles: boolean; readonly ais: Ai[]; readonly partner: Ai | null; readonly foes: Ai[];
@@ -125,6 +125,8 @@ export class Match {
 
   pointEnd(winner: Side, reason: string): void {
     const g = this.g, srv = this.score.server, r = this.score.pointWon(winner);
+    const hits = this.hitId - this.hits0, landed = reason === "Bola no chão da adversária" || reason === "Quicou na areia"; this.hits0 = this.hitId;   // destaques: ace (saque sem devolução), smash que cai dentro, ralis longos
+    const tag = landed && winner === srv && hits <= 1 ? "ACE!" : landed && hits >= 3 && (g.lastKey === "smash" || g.lastKey === "espeto") ? "SMASH!" : hits >= 16 ? `RALI DE ${hits}!` : undefined;
     if (r.match !== undefined) this.over = r.match;
     if (this.score.server !== srv || r.game !== undefined) this.rotateServer();
     this.toss = null; this.humanOwns = true;
@@ -132,7 +134,7 @@ export class Match {
       const o = a.o; a.plan = null; a.letGo = false; a.chase = false; o.swing = null; o.reactT = 0;
       o.react = a.team === 1 ? (r.match !== undefined ? (winner === 1 ? 0 : 1) : winner === 1 ? (g.rally >= 8 ? 2 : 0) : 1) : 0;   // fim da partida: quem perde suspira e quem ganha dança (game.ts)
     }
-    g.endPoint(winner, reason, r);
+    g.endPoint(winner, reason, r, tag);
     if (this.partner) this.partner.o.react = g.react;   // a parceira reage como a jogadora
   }
 
@@ -258,7 +260,7 @@ export class Match {
     g.emit("opp", { clip: sw.clip, gap_cm: Math.round(gap * 100), whiff: sw.whiff, serve: sw.serve, by: a.o.name });
     if (!sw.serve && (sw.whiff || gap > 0.55)) { a.plan = null; if (sw.whiff) this.stats.whiff++; else this.stats.miss++; return; }
     if (!sw.serve) this.stats.hit++;   // errou a bola: ela segue e o ponto se decide na areia
-    b.x = H.x; b.y = Math.max(H.y, BALL_R); b.z = H.z;
+    b.x = H.x; b.y = Math.max(H.y, BALL_R); b.z = H.z; g.lastKind = sw.serve ? "serve" : sw.kind; g.lastKey = sw.serve ? "saque" : strokeOf(sw.clip)?.key ?? ""; g.vfx.hit(H.x, H.y, H.z, 1, g.lastKind);
     if (S.stamina) o.stamina.drain(sw.serve ? 0.02 : sw.kind === "over" ? 0.03 : 0.012);
     this.aiShot(a, sw.serve, p?.err ?? false); a.plan = null;
     if (sw.serve) { g.state = "rally"; g.rally = 0; g.serveTime = g.time; }

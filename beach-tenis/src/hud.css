@@ -196,3 +196,7 @@ button,select,input,textarea{font-family:inherit}
 /* vinheta barata da qualidade Média (na Alta ela vem da grade do pós-processamento): um gradiente por cima do canvas, abaixo da interface */
 #vig{position:fixed;inset:0;pointer-events:none;display:none;background:radial-gradient(125% 105% at 50% 50%,transparent 58%,rgba(4,14,24,.3) 100%)}
 body.vig #vig{display:block}
+
+/* destaques do ponto: ACE!, SMASH!, RALI DE n! */
+#toast.k-big{font-size:42px;color:#fff;padding:5px 26px 8px;background:linear-gradient(180deg,rgba(255,138,48,.92),rgba(224,82,0,.9));border-color:#ffc58f;box-shadow:0 6px 26px #ff6a0077;letter-spacing:.02em;text-shadow:0 2px 0 #0003,0 4px 14px #0006}
+@media (max-height:520px){#toast.k-big{font-size:34px}}
