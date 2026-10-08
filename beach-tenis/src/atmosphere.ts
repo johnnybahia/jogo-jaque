@@ -58,7 +58,9 @@ export class Atmosphere {
   /** posição no dia: 0 = manhã, 0,5 = tarde, 1 = pôr do sol */
   t = 0.5; target = 0.5; cur = cloneA(ATMOS[1]);
   clouds = true; waves = 1;
-  private sunDir = new THREE.Vector3(); private lightDir = new THREE.Vector3(); private tmp = new THREE.Color(); private time = 0;
+  private sunDir = new THREE.Vector3(); private tmp = new THREE.Color(); private time = 0;
+  /** do chão para a luz (sombras dos adereços) */
+  readonly lightDir = new THREE.Vector3();
   constructor(private p: AtmosParts) { this.apply(); }
 
   /** vai para `t` (0..1) com suavidade; `snap` pula direto */

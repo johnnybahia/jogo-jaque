@@ -7,6 +7,8 @@ import { S, loadRecord, saveRecord } from "./settings";
 import { Footprints } from "./footprints";
 import { Quality } from "./quality";
 import type { Atmosphere } from "./atmosphere";
+import type { Net } from "./net";
+import { Props } from "./props";
 import { CueMarker } from "./cuemark";
 import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
 import { Stamina } from "./stamina";
@@ -82,14 +84,14 @@ export class Game {
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
-  readonly quality = new Quality(); atm!: Atmosphere;   // hora do dia: céu, mar, luz e névoa
+  readonly quality = new Quality(); atm!: Atmosphere; net!: Net; props!: Props; private courtMask!: { value: number };   // hora do dia: céu, mar, luz e névoa; rede com pano; adereços da praia
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.quality.onChange = () => this.applyQuality(); this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.envMatch = buildMatchCourt(this.scene); this.foot = new Footprints(this.scene);
-    const bt = blobTexture();
+    const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.courtMask = env.courtMask; const court = buildMatchCourt(this.scene); this.envMatch = court.group; this.net = court.net; this.foot = new Footprints(this.scene);
+    const bt = blobTexture(); this.props = new Props(bt); this.scene.add(this.props.group);
     const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false }); this.shadowMat = bm;
     this.playerShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), bm); this.playerShadow.rotation.x = -Math.PI / 2; this.playerShadow.position.y = 0.01; this.scene.add(this.playerShadow);
     this.ballShadow = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), bm); this.ballShadow.rotation.x = -Math.PI / 2; this.ballShadow.position.y = 0.012; this.scene.add(this.ballShadow);
@@ -121,7 +123,7 @@ export class Game {
     this.mode = mode; this.viewClose(); this.intent = null; this.stopDance(); this.calls = [];
     const m = mode === "match"; if (!m) { this.match = null; this.onScore(null); }
     if (!m) this.doubles = false;
-    this.envTrain.visible = !m; this.envMatch.visible = m; this.opp?.setVisible(m); this.partner?.setVisible(m && this.doubles); this.opp2?.setVisible(m && this.doubles);
+    this.envTrain.visible = !m; this.envMatch.visible = m; this.courtMask.value = m ? 1 : 0; this.opp?.setVisible(m); this.partner?.setVisible(m && this.doubles); this.opp2?.setVisible(m && this.doubles);
     Object.assign(this.tun, m ? { wallZ: 99, net: { z: MATCH.netZ, h: NET_H, w: 2 * MATCH.halfW + 0.6 } } : { wallZ: COURT.wallZ, net: undefined });
     this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false;
     this.rig.root.position.set(0, 0, 0); this.vx = this.vz = 0; this.foot.clear();
@@ -224,7 +226,7 @@ export class Game {
   /** aplica o nível de qualidade (resolução agora; sombras, pós e adereços nas próximas fases) */
   applyQuality(): void {
     this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio)); this.resize();
-    this.atm.clouds = this.quality.tier !== "baixa"; this.atm.waves = this.quality.tier === "baixa" ? 0.5 : 1;
+    this.atm.clouds = this.quality.tier !== "baixa"; this.atm.waves = this.quality.tier === "baixa" ? 0.5 : 1; this.props.setTier(this.quality.tier);
   }
 
   resize(): void {
@@ -543,6 +545,7 @@ export class Game {
 
   private handleEvent(ev: string | null): void {
     if (!ev) return;
+    if (ev === "net") this.net.hit(this.ball.x, this.ball.y, 9);   // o pano balança a partir de onde a bola bateu
     if (this.match) { if (this.state === "rally") { if (ev === "sand") this.match.onSand(); else if (ev === "net") this.match.onNet(); } return; }   // partida: o 1º toque na areia ou a rede decide o ponto
     if (ev === "wall") { this.wallFx.spawn(this.ball.x, this.ball.y, this.tun.wallZ - 0.03); this.emit("wall", { z: +this.ball.z.toFixed(2), y: +this.ball.y.toFixed(2) }); if (this.state === "rally" && this.ball.y < NET_H - 0.03) this.kill("Na rede"); }
     if (ev === "wallout" && this.state === "rally") this.kill("Fora da parede");
@@ -617,7 +620,7 @@ export class Game {
     if (this.mode === "match") for (const o of this.aiBodies()) if (o.walker > 0) fsp[o.walker] = o.speed;
     this.foot.update(dt, fsp);
     this.syncVisuals(dt);
-    this.atm.setTarget(S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera.position);
+    this.atm.setTarget(S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera.position); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
   }
 
   private animate(dt: number): void {
