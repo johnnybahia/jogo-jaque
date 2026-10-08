@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 // Poeira de areia: um sopro curto a cada passada de corrida e na freada do golpe. Poucas sprites reaproveitadas, sem custo perceptível.
-const N = 14, LIFE = 0.55;
+const N = 40, LIFE = 0.55;
 
 export class Dust {
   private items: { s: THREE.Sprite; m: THREE.SpriteMaterial; age: number; size: number; vy: number }[] = [];

@@ -17,6 +17,7 @@ export interface OppSwing { clip: string; key: string; kind: string; s: number; 
 export class Opponent {
   rig: Rig; fx: PoseFX; stamina = new Stamina(); dancer = new Dancer();
   readonly dir: 1 | -1; readonly name: string;
+  walker = -1;   // índice dela em Footprints (pegadas); -1 = não marca
   x = 0; z = MATCH.len; vx = 0; vz = 0;
   swing: OppSwing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
   react = 0; reactT = 0;
@@ -30,6 +31,9 @@ export class Opponent {
     this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), shadowMat); this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.y = 0.01; scene.add(this.shadow);
     this.setVisible(false);
   }
+
+  /** velocidade da raiz em m/s (parada durante o golpe: os pés escorregam no clipe e não marcam) */
+  get speed(): number { return this.swing ? 0 : Math.hypot(this.vx, this.vz); }
 
   setVisible(v: boolean): void { this.rig.root.visible = v; this.shadow.visible = v; }
 
