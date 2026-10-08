@@ -142,7 +142,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     const qh = document.createElement("h3"); qh.textContent = "Qualidade gráfica"; panel.appendChild(qh);
     const ql = document.createElement("label"); ql.innerHTML = `<span>Nível<select><option value="auto">Auto (recomendado)</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option></select></span><small class="qnow"></small>`;
     const qs = ql.querySelector("select")!, qn = ql.querySelector(".qnow")!; qs.value = game.quality.choice;
-    const qshow = () => { qn.textContent = `Agora: ${game.quality.label()}`; };
+    const QD: Record<string, string> = { alta: "sombras nítidas, bloom e cor de cinema", media: "sombras do sol e vinheta", baixa: "sem sombras do sol, sem nuvens" };
+    const qshow = () => { qn.textContent = `Agora: ${game.quality.label()} — ${QD[game.quality.tier]}`; };
     qs.onchange = () => { game.quality.set(qs.value as Choice); qshow(); }; qshow(); panel.appendChild(ql);
     const tl = document.createElement("label"); tl.innerHTML = `<span>Hora do dia<select><option value="0">Avança com a partida</option><option value="1">Manhã</option><option value="2">Tarde</option><option value="3">Pôr do sol</option></select></span>`;
     const ts = tl.querySelector("select")!; ts.value = String(S.tod); ts.onchange = () => { S.tod = Number(ts.value); saveSettings(); }; panel.appendChild(tl);

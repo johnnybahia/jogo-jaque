@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { addRim } from "./rim";
 
 /** visuais das outras atletas: a mesma Jaqueline com o atlas de cor recolorido (tools/looks/make_looks.py) */
 export interface Look { id: string; name: string; file: string; }
@@ -22,6 +23,6 @@ export function applyLook(model: THREE.Object3D, tex: THREE.Texture | undefined)
   if (!tex) return;
   model.traverse((o) => {
     const m = o as THREE.SkinnedMesh; if (!m.isSkinnedMesh) return;
-    const mat = (m.material as THREE.MeshStandardMaterial).clone(); mat.map = tex; mat.needsUpdate = true; m.material = mat;
+    const mat = (m.material as THREE.MeshStandardMaterial).clone(); mat.map = tex; addRim(mat); mat.needsUpdate = true; m.material = mat;
   });
 }
