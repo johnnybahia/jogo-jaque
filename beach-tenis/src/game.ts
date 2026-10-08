@@ -14,11 +14,11 @@ import { WallFx } from "./wallfx";
 import { Dust } from "./dust";
 import { Opponent } from "./opponent";
 import { Dancer, pickDance } from "./dance";
+import { CAMS, CAM_NAMES, CamPose, cleanPose } from "./camera";
 import { Match, LEVELS, ScoreView, inCourt } from "./match";
 import { FORMATS, PointResult, Side } from "./rules";
 import { Ball, BALL_R, G, Sample, Tun, heightAtWall, newBall, predict, solveShot, stepBall } from "./physics";
 
-const CAM_PITCH = 0.285;   // inclinação padrão da câmera (rad): 2,5 m de altura a 4,8 m atrás
 const MAX_SPEED = 3.4, MAX_SIDE = 3.0, MAX_BACK = 2.6;   // m/s: frente, lado, ré (a ré é mais lenta, como no jogo de verdade)
 const NO_EV: Ev[] = [];
 interface Ev { clip: string; kind: string; key: string; prep: number; x1: number; z1: number; shift: number; need: number; dy: number; }
@@ -64,7 +64,7 @@ export class Game {
   onStamina: (v: number, mul: number) => void = () => {};
   lastLaunch: { pass: number; want: string | null; ms: number } | null = null;   // diagnóstico: como a última bola foi escolhida
   intent: string | null = null; recent: string[] = [];   // golpe (chave de STROKES) que a bola lançada prepara; últimos golpes usados (variedade)
-  cam = { yaw: 0, pitch: CAM_PITCH, dist: S.camDist };   // câmera em órbita em torno da jogadora: giro (360°), inclinação e distância (zoom)
+  cam: CamPose = CAMS.get(); camEdit = false;   // câmera em órbita em torno da jogadora: giro (360°), inclinação e distância (zoom); começa na câmera escolhida (camera.ts); camEdit: tela de ajuste da câmera
   vx = 0; vz = 0; phase = 0; idlePhase = 0; alt = 0;
   log: LogEntry[] = [];
   onToast: (m: string, sub?: string) => void = () => {};
@@ -114,7 +114,7 @@ export class Game {
     this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false;
     this.rig.root.position.set(0, 0, 0); this.vx = this.vz = 0; this.foot.clear();
     if (m) this.opp?.place(0, MATCH.len);
-    this.setCamera(true); this.onHud();
+    this.applyCam(); this.setCamera(true); this.onHud();
   }
 
   /** onde ela espera o ponto: no treino, o centro atrás da linha de fundo; na partida, depende de quem saca */
@@ -176,7 +176,7 @@ export class Game {
     this.rig.faceAssist = S.faceAssist;
     this.rig.applyRacketTransform(S, S.playerScale);
     if (recalc) { this.rig.calibrate(S.contactOffset); this.candAll = null; }
-    this.ballMesh.scale.setScalar(S.ballVisual); if (!this.viewer) this.cam.dist = S.camDist;
+    this.ballMesh.scale.setScalar(S.ballVisual);
   }
 
   resize(): void {
@@ -213,7 +213,7 @@ export class Game {
   }
 
   serve(): void {
-    if (!this.rig.mixer) return;
+    if (!this.rig.mixer || this.camEdit) return;
     if (this.match && (this.match.score.server !== 0 || this.match.over !== null)) return;   // na partida a adversária saca no turno dela
     this.viewClose();
     if (this.swing && !this.swing.contacted) this.swing = null;
@@ -308,8 +308,16 @@ export class Game {
 
   // ---------- câmera ----------
   orbit(dyaw: number, dpitch: number): void { this.camUser = this.time; this.cam.yaw += dyaw; this.cam.pitch = THREE.MathUtils.clamp(this.cam.pitch + dpitch, 0.06, 1.35); }
-  zoom(f: number): void { this.camUser = this.time; this.cam.dist = THREE.MathUtils.clamp(this.cam.dist * f, 1.8, 14); if (!this.viewer) S.camDist = this.cam.dist; }   // na galeria o zoom é temporário
-  recenter(): void { this.cam.yaw = 0; this.cam.pitch = CAM_PITCH; }
+  zoom(f: number): void { this.camUser = this.time; this.cam.dist = THREE.MathUtils.clamp(this.cam.dist * f, 1.8, 14); }   // girar e dar zoom no jogo é temporário: o que fica salvo são as 3 câmeras (camera.ts)
+  /** põe a câmera na posição da câmera i (a escolhida, se não disser): a salva ou a de fábrica */
+  applyCam(i: number = CAMS.sel): void { Object.assign(this.cam, CAMS.get(i)); this.camUser = -99; }
+  recenter(): void { this.applyCam(); }
+  /** ajusta a câmera ao vivo (tela de ajuste da câmera); o que passa dos limites é cortado */
+  setCamPose(p: Partial<CamPose>): void { Object.assign(this.cam, cleanPose({ ...this.cam, ...p }, this.cam)); this.camUser = this.time; }
+  /** troca para a próxima das 3 câmeras e avisa qual é */
+  cycleCam(): void { CAMS.select((CAMS.sel + 1) % CAM_NAMES.length); this.applyCam(); this.onToast(`Câmera ${CAMS.sel + 1}`, CAM_NAMES[CAMS.sel]); }
+  /** tela de ajuste da câmera: a quadra da partida com as duas em seus lugares, sem rali; ao sair volta ao treino (por trás da capa) */
+  camPreview(on: boolean): void { this.camEdit = on; this.setMode(on ? "match" : "train"); }
 
   /** tempo (s) que a jogadora ainda fica parada no fim do golpe em andamento (0 sem golpe): não dá para correr nesse intervalo */
   lockLeft(): number { const sw = this.swing; return sw ? Math.max(0, (sw.endT - sw.t) / sw.s) : 0; }

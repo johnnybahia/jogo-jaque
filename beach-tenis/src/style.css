@@ -66,8 +66,8 @@ body.ended #btns,body.ended #joyZone,body.ended #leftBtns{display:none}
 @media (max-height:520px){#endCard{flex-direction:row;flex-wrap:wrap;justify-content:center;align-items:center;gap:2px 14px;padding:22px 12px 8px}#endCard h2{font-size:22px}#endCard p{font-size:14px}#endCard p:first-of-type,#endCard small{display:none}#endCard .btns{margin-top:0}#endCard button{padding:8px 16px;font-size:14px}}
 #endCard h2{margin:0;font-size:32px;text-shadow:0 2px 8px #000a}#endCard p{margin:0;font-size:18px;font-weight:700;opacity:.92}#endCard small{opacity:.75}
 #endCard .btns{display:flex;gap:10px;margin-top:8px}#endCard button{border:0;border-radius:12px;padding:13px 20px;font-size:16px;font-weight:800;color:#fff;background:#2a3b4a}#endCard button.main{background:#ff6a00}
-#cover{position:fixed;inset:0;z-index:8;display:flex;align-items:center;justify-content:center;background:radial-gradient(120% 90% at 50% 0%,#1b6fb4 0%,#0d2b3e 62%,#07151f 100%);overflow:auto;padding:16px;touch-action:pan-y}
-.cv-card{width:min(380px,100%);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+#cover{position:fixed;inset:0;z-index:8;display:flex;background:radial-gradient(120% 90% at 50% 0%,#1b6fb4 0%,#0d2b3e 62%,#07151f 100%);overflow:auto;padding:16px;touch-action:pan-y}
+.cv-card{margin:auto;width:min(380px,100%);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
 .cv-logo{width:min(34vh,150px);height:auto;filter:drop-shadow(0 6px 14px #0008)}
 .cv-card h1{margin:2px 0 0;font-size:30px;line-height:1.05;letter-spacing:.02em}.cv-card h1 span{color:#ff6a00}
 .cv-sub{margin:-4px 0 4px;font-size:15px;font-weight:800;letter-spacing:.38em;text-transform:uppercase;color:#d8f23a}
@@ -85,3 +85,16 @@ body.menu #hud,body.menu #btns,body.menu #joyZone,body.menu #leftBtns,body.menu 
 #score .sc-sta{height:4px;border-radius:2px;background:#0009;margin-top:4px;overflow:hidden}#score .sc-sta i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#35e06a,#d8f23a);transition:width .2s}
 body.match #viewBtn{display:none}
 body.match #staWrap small{display:none}body.match #sta{width:80px}
+
+.cv-cam{display:flex;flex-direction:column;gap:4px;width:100%;text-align:left}.cv-lab{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.95}
+.cv-camrow{display:flex;gap:8px}#cvCams{display:flex;gap:6px;flex:1}
+.cv-card #cvCams button{flex:1;padding:8px 2px;font-size:12px;line-height:1.15;background:#ffffff1f;box-shadow:none}.cv-card #cvCams button b{display:block;font-size:15px}.cv-card #cvCams button.on{background:#ff6a00}
+.cv-card button#cvCamEdit{padding:8px 12px;font-size:12px}
+#camEdit{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;gap:8px;padding:30px 12px max(12px,env(safe-area-inset-bottom));background:linear-gradient(#0b162000,#0b1620f2 26%);pointer-events:none}
+#camEdit>*{pointer-events:auto}
+#ceEye{position:absolute;right:12px;top:-34px;width:42px;height:34px;border:0;border-radius:10px;background:#0009;color:#fff;font-size:18px;padding:0}#camEdit.min{background:none}#camEdit.min>*:not(#ceEye){display:none}#camEdit small{opacity:.7;text-align:center;font-size:11px;pointer-events:none}
+#ceTabs{display:flex;gap:6px}#ceTabs button{flex:1;padding:9px 4px;border:0;border-radius:10px;background:#2a3b4a;color:#fff;font-size:15px;font-weight:800;line-height:1.1}#ceTabs button i{display:block;font-style:normal;font-size:11px;font-weight:600;opacity:.85}#ceTabs button.on{background:#ff6a00}
+.ce-sl{display:flex;flex-direction:column;gap:2px}.ce-sl label{display:grid;grid-template-columns:72px 1fr 56px;align-items:center;gap:8px;font-size:13px;font-weight:700}.ce-sl input{width:100%;margin:0}.ce-sl b{text-align:right;font-variant-numeric:tabular-nums}
+.ce-btns{display:flex;gap:8px}.ce-btns button{flex:1;padding:12px 0;border:0;border-radius:10px;background:#2a3b4a;color:#fff;font-size:14px;font-weight:800}.ce-btns button.main{flex:2;background:#ff6a00}.ce-btns button.main:disabled{background:#2a3b4a;opacity:.75}
+body.camedit #hud,body.camedit #btns,body.camedit #joyZone,body.camedit #leftBtns,body.camedit #gear,body.camedit #score,body.camedit #cueName,body.camedit #camCycle{display:none}
+@media (max-height:520px){#camEdit{display:grid;grid-template-columns:1fr 1fr;grid-template-areas:"t b" "s s";gap:6px 12px;padding:14px 12px 8px}#ceTabs{grid-area:t}.ce-btns{grid-area:b}.ce-sl{grid-area:s;flex-direction:row;gap:14px}.ce-sl label{flex:1;grid-template-columns:auto 1fr auto;gap:6px}#camEdit small{display:none}#ceTabs button,.ce-btns button{padding:7px 4px;font-size:13px}}
