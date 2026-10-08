@@ -20,7 +20,7 @@ export const TIER_NAMES: Record<Tier, string> = { alta: "Alta", media: "Média",
 const STEPS: { tier: Tier; scale: number }[] = [
   { tier: "alta", scale: 1 }, { tier: "media", scale: 1 }, { tier: "media", scale: 0.85 }, { tier: "baixa", scale: 0.85 }, { tier: "baixa", scale: 0.7 },
 ];
-const KEY = "bt.quality.v2", KEY_V1 = "bt.quality.v1";   // v2: o Auto abre na Alta e se calibra na tela de carregamento (o degrau salvo na v1 podia ter ficado preso embaixo por um engasgo de carregamento)
+const KEY = "bt.quality.v3";   // v3: todo aparelho volta ao Auto uma vez (Alta/Média/Baixa fixas ou degraus presos de versões antigas deixam de valer); a partir daí o que a pessoa escolher em ⚙ fica salvo
 const WINDOW = 2, FPS_MIN = 38, BAD_WINDOWS = 2, COOLDOWN = 6, GRACE = 4, SLOW_FPS = 28, SLOW_WINDOWS = 5;   // SLOW: Alta/Média fixas abaixo de 28 FPS por 10 s seguidos → aviso único
 
 /** degrau em que o Auto começa a medir: a Alta (a medição na tela de carregamento decide se fica); aparelho com 2 GB ou menos já começa na Baixa */
@@ -42,7 +42,6 @@ export class Quality {
     try {
       const r = JSON.parse(localStorage.getItem(KEY) || "null") as { choice?: string; step?: number } | null;
       if (r && (r.choice === "auto" || r.choice === "alta" || r.choice === "media" || r.choice === "baixa")) this.choice = r.choice;
-      else { const o = JSON.parse(localStorage.getItem(KEY_V1) || "null") as { choice?: string } | null; if (o && (o.choice === "media" || o.choice === "baixa")) this.choice = o.choice; }   // quem tinha escolhido Média ou Baixa mantém; o Auto antigo vira Alta
       this.step = this.choice === "auto" && typeof r?.step === "number" ? Math.max(0, Math.min(STEPS.length - 1, (r.step | 0) - 1)) : -1;   // Auto: tenta de novo um degrau acima do salvo
     } catch { this.step = -1; }
     if (this.step < 0) this.step = detectStep();
