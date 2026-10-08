@@ -24,6 +24,13 @@ const FINGERS: [string, number[]][] = [["Index", [38, 62, 40]], ["Middle", [44, 
 const THUMB = [22, 28, 20];
 
 /** O GLB sai sem metallicFactor (padrão glTF = 1) e a cena não tem mapa de ambiente: sem isto a jogadora renderiza preta. O BLEND do export também é desnecessário (textura opaca). */
+/** MeshPhysicalMaterial só com valores padrão (o GLB do Tripo sai assim) rende igual ao MeshStandardMaterial, que é mais leve de compilar e de sombrear */
+function slimMaterial(mt: THREE.Material): THREE.Material {
+  const p = mt as THREE.MeshPhysicalMaterial;
+  if (!p.isMeshPhysicalMaterial || p.clearcoat || p.sheen || p.transmission || p.iridescence || p.anisotropy || p.dispersion || p.ior !== 1.5 || p.specularIntensity !== 1) return mt;
+  const s = new THREE.MeshStandardMaterial(); THREE.MeshStandardMaterial.prototype.copy.call(s, p); s.name = p.name; p.dispose(); return s;
+}
+
 function fixSkinMaterial(mt: THREE.Material): void {
   const s = mt as THREE.MeshStandardMaterial;
   if (!s.isMeshStandardMaterial) return;
@@ -86,7 +93,7 @@ export class Rig {
     const isLoco = (n: string) => (LOCO as readonly string[]).includes(n) || LOCO_CLIPS.includes(n);
     this.model = gltf.scene as THREE.Group;
     const skinned: THREE.SkinnedMesh[] = [];
-    this.model.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { skinned.push(m); m.frustumCulled = false; m.castShadow = false; for (const mt of Array.isArray(m.material) ? m.material : [m.material]) fixSkinMaterial(mt); } });
+    this.model.traverse((o) => { const m = o as THREE.SkinnedMesh; if (m.isSkinnedMesh) { skinned.push(m); m.frustumCulled = false; m.castShadow = false; m.material = Array.isArray(m.material) ? m.material.map(slimMaterial) : slimMaterial(m.material); for (const mt of Array.isArray(m.material) ? m.material : [m.material]) fixSkinMaterial(mt); } });
     cleanWrists(gltf.animations, WristTwist.hands(this.model), (n) => !isLoco(n) && !isVideoClip(n) && !isDance(n));
     if (skinned[0]) this.twist = WristTwist.attach(skinned[0]);
     this.root.add(this.model);

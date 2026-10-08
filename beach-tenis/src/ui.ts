@@ -4,6 +4,7 @@ import { cueState, cueProgress } from "./cuemark";
 import { mountPwaUI } from "./pwaui";
 import { STROKES, strokeOf } from "./strokes";
 import { initMenu } from "./menu";
+import type { Choice } from "./quality";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 type Spec = { key: keyof Settings; label: string; min: number; max: number; step: number; recalc?: boolean };
@@ -129,6 +130,11 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   const build = () => {
     panel.innerHTML = `<div class="ph"><span><b>Beach Tênis</b> <small>v${version}</small></span><button type="button">✕ Fechar</button></div>`;
     panel.querySelector<HTMLButtonElement>(".ph button")!.onclick = () => { panel.hidden = true; }; panel.appendChild(pwaBox);
+    const qh = document.createElement("h3"); qh.textContent = "Qualidade gráfica"; panel.appendChild(qh);
+    const ql = document.createElement("label"); ql.innerHTML = `<span>Nível<select><option value="auto">Auto (recomendado)</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option></select></span><small class="qnow"></small>`;
+    const qs = ql.querySelector("select")!, qn = ql.querySelector(".qnow")!; qs.value = game.quality.choice;
+    const qshow = () => { qn.textContent = `Agora: ${game.quality.label()}`; };
+    qs.onchange = () => { game.quality.set(qs.value as Choice); qshow(); }; qshow(); panel.appendChild(ql);
     const gh = document.createElement("h3"); gh.textContent = "Golpes do vídeo (toque para ver)"; panel.appendChild(gh);
     const chips = document.createElement("div"); chips.className = "chips"; const turn = new Map<string, number>();
     for (const st of STROKES) {

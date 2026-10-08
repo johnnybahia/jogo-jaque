@@ -5,6 +5,7 @@ import { Rig, LOCO, SWINGS, prepOf } from "./rig";
 import { buildEnvironment, buildMatchCourt, blobTexture, COURT, MATCH, NET_H } from "./scene";
 import { S, loadRecord, saveRecord } from "./settings";
 import { Footprints } from "./footprints";
+import { Quality } from "./quality";
 import { CueMarker } from "./cuemark";
 import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
 import { Stamina } from "./stamina";
@@ -80,10 +81,11 @@ export class Game {
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
+  readonly quality = new Quality();
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.quality.onChange = () => this.applyQuality(); this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.envTrain = buildEnvironment(this.scene, import.meta.env.BASE_URL).train; this.envMatch = buildMatchCourt(this.scene); this.foot = new Footprints(this.scene);
     const bt = blobTexture();
@@ -217,6 +219,9 @@ export class Game {
     if (recalc) { this.rig.calibrate(S.contactOffset); this.candAll = null; }
     this.ballMesh.scale.setScalar(S.ballVisual);
   }
+
+  /** aplica o nível de qualidade (resolução agora; sombras, pós e adereços nas próximas fases) */
+  applyQuality(): void { this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio)); this.resize(); }
 
   resize(): void {
     const w = window.innerWidth, h = window.innerHeight;
