@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { Atmosphere } from "./atmosphere";
+import { buildSky, buildSea, buildRidge, buildSandGeometry, makeNoiseTexture, SHORE } from "./sky";
 
 export const COURT = { wallZ: 11, wallW: 6, wallH: 3 };
 export const MATCH = { netZ: 8, halfW: 4, len: 16 };   // quadra de partida (m): rede no meio de 16 m; lado da jogadora z ∈ [0, 8], da adversária [8, 16]; largura 8 m
@@ -9,28 +11,41 @@ function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => 
   draw(cv.getContext("2d")!); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 }
 
-export function buildEnvironment(scene: THREE.Scene, base: string): { train: THREE.Group } {
+export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THREE.WebGLRenderer): { train: THREE.Group; atmosphere: Atmosphere } {
   const train = new THREE.Group(); scene.add(train);
-  scene.background = new THREE.Color(0x9fd3f2); scene.fog = new THREE.Fog(0xcfe8f5, 22, 70);
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xe0c890, 1.25));
-  const sun = new THREE.DirectionalLight(0xfff2d6, 1.9); sun.position.set(-6, 12, -8); scene.add(sun);
+  renderer.toneMapping = THREE.NeutralToneMapping;   // preserva as cores de base (pele, roupas) e comprime os brilhos do sol
+  const fog = new THREE.Fog(0xcfe8f5, 30, 190); scene.fog = fog;
+  const hemi = new THREE.HemisphereLight(0xffffff, 0xe0c890, 1.25); scene.add(hemi);
+  const sun = new THREE.DirectionalLight(0xfff2d6, 1.9); scene.add(sun, sun.target);
+  const fill = new THREE.DirectionalLight(0xdce9ff, 0.5); fill.position.set(2, 10, -16); scene.add(fill, fill.target);   // vem de trás da câmera: o rosto da jogadora não fica só em contraluz
+
+  const sky = buildSky(makeNoiseTexture(), true); scene.add(sky.mesh);
+  const sea = buildSea(); scene.add(sea.mesh);
+  const far = buildRidge(330, 14, 42, 3.3, true), near = buildRidge(165, 3, 9, 7.1, true); scene.add(far.mesh, near.mesh);
 
   const sand = canvasTex(256, 256, (c) => {
     c.fillStyle = "#e7d3a0"; c.fillRect(0, 0, 256, 256);
     for (let i = 0; i < 5200; i++) { const v = 200 + Math.random() * 40 | 0; c.fillStyle = `rgba(${v},${v - 22},${v - 70},0.35)`; c.fillRect(Math.random() * 256, Math.random() * 256, 1.6, 1.6); }
   });
-  sand.wrapS = sand.wrapT = THREE.RepeatWrapping; sand.repeat.set(30, 30);
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshStandardMaterial({ map: sand, roughness: 1 }));
-  floor.rotation.x = -Math.PI / 2; scene.add(floor);
+  sand.wrapS = sand.wrapT = THREE.RepeatWrapping;
+  const sandMat = new THREE.MeshStandardMaterial({ map: sand, roughness: 1 });
+  // areia molhada perto do mar: escurece e fica mais lisa (x em metros do mundo)
+  sandMat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying float vWx;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvWx = (modelMatrix * vec4(transformed, 1.0)).x;");
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vWx;")
+      .replace("#include <map_fragment>", `#include <map_fragment>\n float wet = 1.0 - smoothstep(${(SHORE.x0 - 8).toFixed(1)}, ${(SHORE.x0 + 2).toFixed(1)}, vWx); diffuseColor.rgb *= mix(1.0, 0.55, wet);`)
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n roughnessFactor *= mix(1.0, 0.6, wet);");
+  };
+  const floor = new THREE.Mesh(buildSandGeometry(), sandMat); scene.add(floor);
   // texturas PBR de areia (Poly Haven "aerial_beach_01", CC0) — opcionais: se faltarem, fica a procedural
-  const fm = floor.material as THREE.MeshStandardMaterial;
-  const tl = new THREE.TextureLoader(); const rep = (t: THREE.Texture, srgb: boolean) => { if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30); t.anisotropy = 8; return t; };
+  const tl = new THREE.TextureLoader(); const rep = (t: THREE.Texture, srgb: boolean) => { if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
   // carrega direto (GET passa pelo service worker, então funciona offline); se a base falhar, fica a procedural
   tl.load(base + "textures/sand.jpg", (t) => {
-    fm.map = rep(t, true); fm.needsUpdate = true;
-    tl.load(base + "textures/sand_nor.jpg", (n) => { fm.normalMap = rep(n, false); fm.normalScale.set(0.8, 0.8); fm.needsUpdate = true; });
-    tl.load(base + "textures/sand_rough.jpg", (r) => { fm.roughnessMap = rep(r, false); fm.needsUpdate = true; });
+    sandMat.map = rep(t, true); sandMat.needsUpdate = true;
+    tl.load(base + "textures/sand_nor.jpg", (n) => { sandMat.normalMap = rep(n, false); sandMat.normalScale.set(0.8, 0.8); sandMat.needsUpdate = true; });
+    tl.load(base + "textures/sand_rough.jpg", (r) => { sandMat.roughnessMap = rep(r, false); sandMat.needsUpdate = true; });
   });
+  const atmosphere = new Atmosphere({ renderer, fog, hemi, sun, fill, sky, sea, far, near, sand: sandMat });
 
   const faceTex = canvasTex(512, 256, (c) => {
     c.fillStyle = "#f4f1ea"; c.fillRect(0, 0, 512, 256);
@@ -51,7 +66,7 @@ export function buildEnvironment(scene: THREE.Scene, base: string): { train: THR
   const line = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
   const l1 = new THREE.Mesh(new THREE.PlaneGeometry(0.06, COURT.wallZ + 4), line); l1.rotation.x = -Math.PI / 2; l1.position.set(0, 0.005, (COURT.wallZ - 4) / 2); train.add(l1);
   for (const x of [-4.5, 4.5]) { const l = l1.clone(); l.position.x = x; train.add(l); }
-  return { train };
+  return { train, atmosphere };
 }
 
 export function blobTexture(): THREE.CanvasTexture {
