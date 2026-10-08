@@ -12,6 +12,7 @@ import type { Post } from "./post";
 import { Fx, type Swinger } from "./fx";
 import { Props } from "./props";
 import { CueMarker } from "./cuemark";
+import { AimMark, PowerView } from "./power";
 import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
 import { Stamina } from "./stamina";
 import { fitCost } from "./fit";
@@ -33,7 +34,7 @@ export interface Cand { clip: string; kind: string; key: string; prep: number; c
 const DEFAULT_CAND: Cand = { clip: "", kind: "ground", key: "fh_din", prep: 0.55, cx: -0.3, cy: 1.2, cz: 0.5 };   // se os clipes do vídeo não carregaram
 /** saque: a bola sai da mão esquerda em `rel` (s do clipe) e sobe em arco até o ponto de contato com a raquete (mão em h*, contato em c*, mundo) */
 interface Toss { rel: number; apex: number; hx: number; hy: number; hz: number; cx: number; cy: number; cz: number; }
-interface Swing { toss?: Toss; startT: number; endT: number; clip: string; s: number; contactT: number; t: number; duration: number; x0: number; z0: number; x1: number; z1: number; contacted: boolean; kind: string; plan?: number[]; err: number; whiff: boolean; msg?: string; preview?: boolean; }
+interface Swing { toss?: Toss; startT: number; endT: number; clip: string; s: number; contactT: number; t: number; duration: number; x0: number; z0: number; x1: number; z1: number; contacted: boolean; kind: string; plan?: number[]; err: number; whiff: boolean; msg?: string; preview?: boolean; t0?: number; D?: number; hold?: boolean; rel?: number; }   // t0/D: relógio do jogo no começo do golpe e s até o contato; hold/rel: GOLPE ainda apertado e quando soltou (força)
 /** próxima rebatida: onde a jogadora deve estar, quando a bola chega e quando apertar GOLPE (tempos no relógio do jogo) */
 interface Cue { arrival: number; press: number; prep: number; x1: number; z1: number; smp: Sample; clip: string; kind: string; key: string; shift: number; cost: number; }
 export interface CueView { ttp: number; reach: boolean; win: number; label: string; out?: boolean; }
@@ -43,8 +44,14 @@ interface Viewer { clip: string; speed: number; paused: boolean; wait: number; p
 // tempo (s) do começo do golpe ao contato vem de PREP (rig.ts); a bola chega PREP depois do aperto ideal. O clipe é acelerado/retardado
 // (S_MIN..S_MAX) para o contato cair na bola quando o aperto vem um pouco cedo/tarde; fora disso o golpe passa em branco
 export const S_MIN = 0.62, S_MAX = 1.9, DY_MAX = 0.2, NEED_MAX = 2.7, NEED_OK = 1.7, NEED_RELAX = 2.3;   // NEED: corrida (m/s) exigida para chegar ao ponto a tempo
+const SERVE_AT = 0.45;   // até onde (m) do lugar de saque a jogadora ainda pode sacar
 const HOME = { x: 0, z: 0 }, WALK_HOME = 2.0;   // posição de saque (atrás da linha de fundo, no centro) e velocidade com que ela volta andando depois do ponto (m/s)
 const WIN = { perfect: 0.07, good: 0.16 };   // erro de tempo (s) × Ajustes › janela
+/** nota do tempo do aperto: 2 perfeito, 1 bom, 0 fraco (cedo/tarde) */
+const qualityOf = (err: number): number => { const e = Math.abs(err) / S.timing; return e <= WIN.perfect ? 2 : e <= WIN.good ? 1 : 0; };
+/** força de quem segura o GOLPE: fração do balanço apertada (0 a 1) → 0 a 1; os primeiros 30% (~0,18 s) são zona morta, então um toque, mesmo demorado, sai igual ao de sempre */
+export const DEAD = 0.3;
+export const powerOf = (f: number): number => THREE.MathUtils.clamp((f - DEAD) / (1 - DEAD), 0, 1);
 export interface LogEntry { t: number; type: string; [k: string]: unknown; }
 
 export class Game {
@@ -60,7 +67,7 @@ export class Game {
   rally = 0; record = loadRecord(); deadTimer = 0; time = 0; serveTime = 0;
   react = 0; reactT = 0; private walkAt = 0.5; private recBeaten = false;   // reação ao fim do ponto (0 nada, 1 suspiro, 2 comemoração), tempo desde o ponto e quando ela começa a voltar ao saque
   swing: Swing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
-  cue: Cue | null = null; cueOut = false; private lastCue: Cue | null = null; marker: CueMarker; perfects = 0;
+  cue: Cue | null = null; cueOut = false; private lastCue: Cue | null = null; marker: CueMarker; aimMark: AimMark; private hitT = 0; private aimV = 0; private aimT = -99; aimPre = 0.12; cancelFollow = true; perfects = 0;   // aimPre: janela (s) antes do aperto em que um empurrão do direcional ainda vale como mira; cancelFollow: empurrar o direcional depois do contato encurta o gesto (os dois ligam por padrão; os testes de comparação com a versão antiga os desligam)
   wallFx: WallFx; dust: Dust;
   dancer = new Dancer(); danceWho: Side | null = null; private danced = false; private danceT0 = 0; private lastDance: string | null = null; private camPrev: { yaw: number; pitch: number; dist: number } | null = null; private camUser = -99; private oppPos = new THREE.Vector3();   // dança de vitória: quem dança, se já começou, a última sorteada, câmera de antes e último toque do usuário na câmera
   match: Match | null = null; onScore: (v: ScoreView | null) => void = () => {}; onMatchEnd: (winner: Side, v: ScoreView) => void = () => {}; private matchEnded = false;
@@ -75,9 +82,10 @@ export class Game {
   cam: CamPose = CAMS.get(); camEdit = false;   // câmera em órbita em torno da jogadora: giro (360°), inclinação e distância (zoom); começa na câmera escolhida (camera.ts); camEdit: tela de ajuste da câmera
   vx = 0; vz = 0; phase = 0; idlePhase = 0; alt = 0;
   log: LogEntry[] = [];
-  onToast: (m: string, sub?: string) => void = () => {};
+  onToast: (m: string, sub?: string, ms?: number) => void = () => {};   // ms: quanto tempo fica na tela (padrão 0,9 s; 1,3 s com 2ª linha)
   onHud: () => void = () => {};
   onCue: (v: CueView | null) => void = () => {};
+  onPower: (v: PowerView | null) => void = () => {};   // barra de força (partida): só enquanto balança a raquete
   /** balões de chamada ("Minha!", "Sua!", "Fora!") sobre a cabeça de quem fala (duplas); a tela desenha os que estão no ar: posição em % da tela, idade e dupla */
   private calls: { text: string; who: Opponent | null; t: number; team: number }[] = []; private callsOn = false; private callV = new THREE.Vector3();
   onCalls: (c: { text: string; x: number; y: number; team: number; a: number }[]) => void = () => {};
@@ -86,7 +94,7 @@ export class Game {
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
-  vfx!: Fx; lastKind = ""; lastKey = ""; private swingers = new Map<object, Swinger>(); shadowsOn = false; private post: Post | null = null; private postWanted = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
+  vfx!: Fx; lastKind = ""; lastKey = ""; private swingers = new Map<object, Swinger>(); shadowsOn = false; private post: Post | null = null; private postWanted = false; private postLoad: Promise<void> | null = null; benchMs = 0 /* último tempo medido por quadro na calibração (diagnóstico) */; private tipDone = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
   readonly quality = new Quality(); atm!: Atmosphere; net!: Net; props!: Props; private courtMask!: { value: number };   // hora do dia: céu, mar, luz e névoa; rede com pano; adereços da praia
 
   constructor(canvas: HTMLCanvasElement) {
@@ -100,7 +108,7 @@ export class Game {
     this.ballShadow = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), bm); this.ballShadow.rotation.x = -Math.PI / 2; this.ballShadow.position.y = 0.012; this.scene.add(this.ballShadow);
     this.ballMesh = new THREE.Group(); this.ballMesh.add(new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 20, 14), new THREE.MeshStandardMaterial({ color: 0xd8f23a, emissive: 0x6a7a10, roughness: 0.7 }))); this.scene.add(this.ballMesh);
     this.ballMesh.visible = false; this.ballShadow.visible = false;
-    this.vfx = new Fx(this.scene, this.camera, this.renderer); this.marker = new CueMarker(this.scene); this.wallFx = new WallFx(this.scene); this.dust = new Dust(this.scene); this.foot.onPlant = (x, z, sp) => this.dust.puff(x, z, sp);
+    this.vfx = new Fx(this.scene, this.camera, this.renderer); this.marker = new CueMarker(this.scene); this.aimMark = new AimMark(this.scene); this.wallFx = new WallFx(this.scene); this.dust = new Dust(this.scene); this.foot.onPlant = (x, z, sp) => this.dust.puff(x, z, sp);
     this.applyQuality();
   }
 
@@ -207,8 +215,11 @@ export class Game {
     const m = this.match; if (!m) return;
     this.state = "wait"; this.react = 0; this.ballMesh.visible = false; this.ballShadow.visible = false; this.cue = null; this.lastCue = null; this.onScore(m.view());
     if (m.over !== null) return;
-    const sv = m.currentServer(); if (!sv) { if (S.autoServe) this.serve(); } else m.startServe(sv);   // a IA que saca (adversária ou parceira) saca sozinha
+    const sv = m.currentServer(); if (!sv) { if (S.autoServe) this.serve(); else this.onToast("Sua vez de sacar", "toque em SACAR"); } else m.startServe(sv);   // a IA que saca (adversária ou parceira) saca sozinha
   }
+
+  /** partida, vez da jogadora de sacar (entre os pontos): ela vai sozinha ao lugar de saque e o direcional não a tira de lá; só o saque (automático ou pelo SACAR) a libera */
+  serveLocked(): boolean { const m = this.match; return !!m && m.over === null && (this.state === "dead" || this.state === "wait") && m.currentServer() === null && !this.camEdit && !this.cover; }
 
   /** fim do ponto na partida: placar, reações e volta aos lugares */
   endPoint(winner: Side, reason: string, r: PointResult, tag?: string): void {
@@ -253,9 +264,39 @@ export class Game {
     for (const r of [this.rig, ...[this.opp, this.partner, this.opp2].map((o) => o?.rig)]) r?.setCast(on);
     // pós-processamento (bloom + grade) só na Alta e se o aparelho renderiza em meio-float; o código vem sob demanda
     this.postWanted = this.quality.tier === "alta" && (this.renderer.extensions.has("EXT_color_buffer_float") || this.renderer.extensions.has("EXT_color_buffer_half_float"));
-    if (this.postWanted && !this.post) void import("./post").then(({ Post: P }) => { if (this.postWanted && !this.post) { this.post = new P(this.renderer, this.scene, this.camera, window.innerWidth, window.innerHeight, this.renderer.getPixelRatio()); } });
+    if (this.postWanted && !this.post && !this.postLoad) this.postLoad = import("./post").then(({ Post: P }) => { if (this.postWanted && !this.post) { this.post = new P(this.renderer, this.scene, this.camera, window.innerWidth, window.innerHeight, this.renderer.getPixelRatio()); } }).catch(() => { /* sem pós: fica a vinheta */ }).finally(() => { this.postLoad = null; });
     if (!this.postWanted && this.post) { this.post.dispose(); this.post = null; }
     document.body.classList.toggle("vig", this.quality.tier === "media" || (this.quality.tier === "alta" && !this.postWanted));
+  }
+
+  /** antes de abrir o jogo: espera o que a qualidade escolhida usa (pós-processamento da Alta), compila TODOS os materiais da cena (partida, adversárias e efeitos ainda escondidos) e desenha alguns quadros,
+   *  para nada engasgar na primeira vez que aparece e o jogo já abrir na qualidade final. Tem limite de tempo para nunca prender a tela de carregamento. */
+  async warmUp(): Promise<void> {
+    const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)), deadline = performance.now() + 10000;
+    try {
+      if (this.postLoad) await Promise.race([this.postLoad, wait(6000)]);
+      await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(8000)]);
+      if (this.quality.auto) await this.calibrate(deadline);
+      for (let i = 0; i < 3; i++) { this.render(0.016); await wait(0); }
+    } catch { /* abre mesmo assim */ }
+  }
+
+  /** só no Auto: mede o aparelho na tela de carregamento (cada quadro espera a GPU terminar) e fica no melhor degrau que fecha em até 12 ms por quadro (a cena de capa é mais leve que uma partida de duplas, daí a folga);
+   *  assim o jogo abre já no nível que o aparelho aguenta. Se o tempo acaba, deixa como está (o Auto de dentro do jogo ainda protege). */
+  private async calibrate(deadline: number): Promise<void> {
+    const gl = this.renderer.getContext(), px = new Uint8Array(4), wait = () => new Promise<void>((r) => setTimeout(r, 0));
+    const bench = async (): Promise<number> => {
+      const ts: number[] = [];
+      for (let i = 0; i < 11 && performance.now() < deadline; i++) { const t0 = performance.now(); this.render(0.016); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); if (i >= 3) ts.push(performance.now() - t0); await wait(); }
+      ts.sort((a, b) => a - b); return ts.length ? ts[ts.length >> 1] : 0;
+    };
+    for (let guard = 0; guard < 5 && performance.now() < deadline; guard++) {
+      const ms = await bench(); this.benchMs = +ms.toFixed(1); if (ms <= 12) break;
+      const t0 = this.quality.tier; if (!this.quality.stepDown()) break;   // onChange → applyQuality
+      if (this.postLoad) await Promise.race([this.postLoad, wait()]);
+      if (this.quality.tier !== t0) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), new Promise<void>((r) => setTimeout(r, 4000))]);
+    }
+    this.quality.settle();
   }
 
   resize(): void {
@@ -272,7 +313,7 @@ export class Game {
   private serveStart(): boolean {
     const clip = SERVE_CLIP, r = this.rig, act = r.actions.get(clip), cl = r.contactLocal.get(clip); if (!act || !cl || !r.leftHand) return false;
     const p = r.root.position, dur = r.durations.get(clip) ?? 2, ct = r.ct(clip, S.contactOffset), h = r.measureObj(clip, TOSS_REL, r.leftHand);
-    this.swing = { clip, s: S.timeScale, contactT: ct, t: SERVE_START, startT: SERVE_START, endT: Math.min(dur - 0.02, ct + SERVE_FOLLOW), duration: dur, x0: p.x, z0: p.z, x1: p.x, z1: p.z, contacted: false, kind: "serve", err: 0, whiff: false,
+    this.swing = { clip, s: S.timeScale, contactT: ct, t: SERVE_START, startT: SERVE_START, endT: Math.min(dur - 0.02, ct + SERVE_FOLLOW), duration: dur, x0: p.x, z0: p.z, x1: p.x, z1: p.z, contacted: false, kind: "serve", err: 0, whiff: false, t0: this.time,
       toss: { rel: TOSS_REL, apex: tossApex((ct - TOSS_REL) / S.timeScale), hx: p.x + h.x, hy: h.y, hz: p.z + h.z, cx: p.x + cl.x, cy: cl.y, cz: p.z + cl.z } };
     if (this.match) { this.match.serveAi = null; this.match.humanOwns = true; }
     this.swingAct = act; this.vx = 0; this.vz = 0; this.cue = null; this.lastCue = null; this.state = "serve"; this.rally = 0; this.react = 0; this.recBeaten = false; this.foot.clear();
@@ -294,6 +335,10 @@ export class Game {
   serve(): void {
     if (!this.rig.mixer || this.camEdit) return;
     if (this.match && (this.match.currentServer() !== null || this.match.over !== null)) return;   // na partida a IA saca no turno dela
+    if (this.match) {   // partida: só no começo do ponto e do lugar de saque (antes dava para sacar de qualquer lugar, até no meio do rali, insistindo no botão)
+      if (this.state !== "wait") return;
+      const h = this.homePos(), q = this.rig.root.position; if (Math.hypot(q.x - h.x, q.z - h.z) > SERVE_AT) { this.onToast("Indo para o lugar de saque…"); return; }
+    }
     this.viewClose();
     if (this.swing && !this.swing.contacted) this.swing = null;
     if (this.serveStart()) return;
@@ -508,13 +553,14 @@ export class Game {
     const act = this.rig.actions.get(clip); if (!act || this.swing) return;
     const p = this.rig.root.position; this.alt++; const st = this.rig.startT(clip, S.contactOffset), dur = this.rig.durations.get(clip) ?? 2;
     const plan = smp ? [smp.x, smp.y, smp.z, smp.t].map((v) => +v.toFixed(2)) : [];
-    this.swing = { clip, s, contactT: ct, t: st, startT: st, endT: Math.min(dur - 0.02, ct + FOLLOW), duration: dur, x0: p.x, z0: p.z, x1, z1, contacted: false, kind, plan, err, whiff, msg };
+    this.swing = { clip, s, contactT: ct, t: st, startT: st, endT: Math.min(dur - 0.02, ct + FOLLOW), duration: dur, x0: p.x, z0: p.z, x1, z1, contacted: false, kind, plan, err, whiff, msg, t0: this.time, D: Math.max(0.05, (ct - st) / s), hold: false, rel: this.time };
     this.swingAct = act; this.vx = 0; this.vz = 0; this.cue = null;
     this.info = `${strokeOf(clip)?.label ?? clip} · erro ${Math.round(err * 1000)} ms`; this.emit("swing", { clip, s: +s.toFixed(2), err_ms: Math.round(err * 1000), whiff, plan });
   }
 
   /** GOLPE: dentro da janela a jogadora vai ao ponto e acerta; fora dela o golpe passa em branco ("Cedo!", "Tarde!", "Longe!") */
-  manualSwing(): void {
+  manualSwing(): boolean { const had = this.swing; this.press(); return !had && !!this.swing; }   // true se este aperto começou um golpe (inclusive em branco)
+  private press(): void {
     if (this.swing || this.state !== "rally") return;
     const cue = this.cue ?? (this.lastCue && this.time - this.lastCue.press < 0.5 ? this.lastCue : null); if (!cue) { this.whiff(1); return; }   // lastCue: apertou um pouco depois da bola passar da janela
     const dtp = cue.arrival - this.time, err = dtp - cue.prep;                       // err > 0: apertou cedo; < 0: tarde
@@ -524,6 +570,21 @@ export class Game {
     this.beginSwing(cue.clip, cue.kind, ct, s, cue.x1, cue.z1, err, false, cue.smp);
   }
 
+  /** partida: segurar o GOLPE durante o balanço (depois de `manualSwing`) — o tempo apertado até a bola bater vira força em `doContact`; soltar antes dá menos */
+  setHold(on: boolean): void {
+    const sw = this.swing; if (!sw || sw.contacted || sw.whiff || sw.preview || sw.D === undefined || !this.match || !S.force || on === !!sw.hold) return;
+    sw.hold = on; if (!on) sw.rel = this.time;
+  }
+  /** uma vez só na vida do aparelho, no 3º acerto seguido da partida: ensina a segurar o GOLPE (a força é opcional e fica escondida se ninguém contar) */
+  private tipForce(): void {
+    if (!this.match || !S.force || this.tipDone || this.rally < 3) return;
+    this.tipDone = true; try { if (localStorage.getItem("bt.tip.force")) return; localStorage.setItem("bt.tip.force", "1"); } catch { return; }
+    window.setTimeout(() => this.onToast("Dica: segure o GOLPE até a bola bater", "mais força, mas a bola fica mais arriscada", 4500), 1500);
+  }
+
+  /** fração do balanço (0 a 1) em que o GOLPE ficou apertado, até `now` */
+  holdFrac(sw: Swing, now = this.time): number { const t0 = sw.t0 ?? now; return THREE.MathUtils.clamp(((sw.hold ? now : sw.rel ?? t0) - t0) / (sw.D ?? 1), 0, 1); }
+
   private whiff(err: number, msg?: string): void {
     const p = this.rig.root.position, n = (this.alt % 2) + 1, clip = this.ball.x <= p.x ? this.pick(n === 1 ? "v_fh_din_1" : "v_fh_est_1", `forehand_${n}`) : this.pick(n === 1 ? "v_bh_din_1" : "v_bh_est_1", `backhand_${n}`);
     this.beginSwing(clip, "ground", this.rig.ct(clip, S.contactOffset), S.timeScale, p.x, p.z, err, true, undefined, msg);
@@ -532,32 +593,34 @@ export class Game {
   // ---------- contato ----------
   private doContact(sw: Swing): void {
     if (sw.preview) return;
+    const pw = this.match && S.force && !sw.whiff && sw.D !== undefined ? powerOf(this.holdFrac(sw, this.hitT)) : 0;   // força de quem segurou o GOLPE (só na partida)
     if (S.stamina) this.stamina.drain(sw.kind === "serve" ? 0.02 : sw.kind === "over" || sw.kind === "smash" ? 0.03 : 0.012);   // bater cansa (golpes por cima mais)
     const act = this.swingAct!; act.time = Math.min(sw.contactT, sw.duration - 1e-3);
     this.rig.root.position.set(sw.x1, 0, sw.z1); if (Math.hypot(sw.x1 - sw.x0, sw.z1 - sw.z0) > 0.25) this.dust.puff(sw.x1, sw.z1, 3.2);   // freada do golpe
     this.rig.mixer.update(0); this.rig.root.updateMatrixWorld(true); this.rig.fixRacket(this.rig.faceAssist); this.rig.root.updateMatrixWorld(true);
     const H = new THREE.Vector3(); this.rig.head.getWorldPosition(H);
     const b = this.ball; const B = new THREE.Vector3(b.x, b.y, b.z); const gap = H.distanceTo(B);
-    this.emit("contact", { clip: sw.clip, gap_cm: Math.round(gap * 100), dy_cm: Math.round((B.y - H.y) * 100), err_ms: Math.round(sw.err * 1000), whiff: sw.whiff, hit: gap <= S.hitRadius, ball: [b.x, b.y, b.z].map((v) => +v.toFixed(2)), head: [H.x, H.y, H.z].map((v) => +v.toFixed(2)), plan: sw.plan });
+    this.emit("contact", { clip: sw.clip, gap_cm: Math.round(gap * 100), dy_cm: Math.round((B.y - H.y) * 100), err_ms: Math.round(sw.err * 1000), whiff: sw.whiff, hit: gap <= S.hitRadius, ball: [b.x, b.y, b.z].map((v) => +v.toFixed(2)), head: [H.x, H.y, H.z].map((v) => +v.toFixed(2)), plan: sw.plan, pw: +pw.toFixed(2) });
     this.info = `${strokeOf(sw.clip)?.label ?? sw.clip} · erro ${Math.round(sw.err * 1000)} ms · distância ${Math.round(gap * 100)} cm`;
     if (sw.kind !== "serve" && gap > S.hitRadius) { this.onToast(sw.msg ?? (sw.err > 0 ? "Cedo!" : "Tarde!")); this.onHud(); return; }
     b.x = H.x; b.y = Math.max(H.y, BALL_R); b.z = H.z;                       // a bola encosta na face da raquete
     this.lastKind = sw.kind; this.lastKey = strokeOf(sw.clip)?.key ?? "";
     if (sw.kind === "serve") {   // saque: a bola vai para a parede e o rali começa
-      if (this.match) this.match.playerShot(H, sw.clip, 1, this.input.right * -1, true); else this.launch(THREE.MathUtils.clamp(H.x + (Math.random() - 0.5) * 2.4, -2.5, 2.5), S.ballSpeed * 1.05, false);
+      if (this.match) this.match.playerShot(H, sw.clip, 1, this.aimOf(sw), true); else this.launch(THREE.MathUtils.clamp(H.x + (Math.random() - 0.5) * 2.4, -2.5, 2.5), S.ballSpeed * 1.05, false);
       this.vfx.hit(H.x, H.y, H.z, 1, "serve"); this.state = "rally"; this.rally = 0; this.serveTime = this.time; this.lastCue = null; this.onToast("Saque!"); this.onHud(); return;
     }
-    const e = Math.abs(sw.err) / S.timing, q = e <= WIN.perfect ? 2 : e <= WIN.good ? 1 : 0;   // 2 perfeito, 1 bom, 0 fraco (cedo/tarde)
+    const q = qualityOf(sw.err);   // 2 perfeito, 1 bom, 0 fraco (cedo/tarde)
     this.vfx.hit(H.x, H.y, H.z, q, sw.kind);
-    const aim = this.input.right * -1;
+    if (pw > 0 && S.stamina) this.stamina.drain((sw.kind === "over" || sw.kind === "smash" ? 0.03 : 0.012) * pw);   // a força custa fôlego: até o dobro de um golpe normal
+    const aim = this.aimOf(sw);
     const spread = S.aimSpread * (q === 2 ? 0.4 : q === 1 ? 1 : 1.6);
     const tx = THREE.MathUtils.clamp(aim * 2.4 + (Math.random() - 0.5) * 2 * spread * (Math.abs(aim) > 0.3 ? 0.3 : 1), -2.6, 2.6);
     const smash = sw.kind === "smash" || sw.kind === "over";
     const speed = S.ballSpeed * (smash ? 1.25 : sw.kind === "volley" ? 0.9 : 1) * (q === 2 ? 1.12 : q === 1 ? 1 : 0.86);
     const st = strokeOf(sw.clip); if (st) { this.recent.push(st.key); if (this.recent.length > 4) this.recent.shift(); }   // antes de lançar: a próxima bola não repete este golpe
-    if (this.match) this.match.playerShot(H, sw.clip, q, aim); else this.launch(tx, speed, smash);
+    if (this.match) this.match.playerShot(H, sw.clip, q, aim, false, pw); else this.launch(tx, speed, smash);
     this.rally++; if (q === 2) this.perfects++; if (this.rally > this.record) { this.record = this.rally; saveRecord(this.record); this.recBeaten = this.rally >= 6; }
-    this.onToast(q === 2 ? "Perfeito!" : q === 1 ? "Bom!" : sw.err > 0 ? "Cedo!" : "Tarde!", st?.label); this.onHud();
+    this.onToast(q === 2 ? "Perfeito!" : q === 1 ? "Bom!" : sw.err > 0 ? "Cedo!" : "Tarde!", st ? (pw >= 0.6 ? `${st.label} · forte` : st.label) : undefined); this.onHud(); this.tipForce();
   }
 
   private advance(dt: number): void {
@@ -567,7 +630,7 @@ export class Game {
     for (let n = 0; n < 4; n++) {   // contatos (da jogadora e da adversária) no instante exato: a bola anda até lá, bate e continua
       const sw = this.swing, m = this.match, tp = sw && !sw.contacted ? Math.max(0, (sw.contactT - sw.t) / sw.s) : Infinity, nc = m ? m.nextContact() : null, to = nc ? nc.t : Infinity, next = Math.min(tp, to);
       if (!(next <= rem)) break;
-      step(next); rem -= next;
+      step(next); rem -= next; this.hitT = this.time - rem;   // relógio do jogo no instante do contato (a força mede o aperto até aqui)
       if (tp <= to) { sw!.t = sw!.contactT; sw!.contacted = true; this.doContact(sw!); } else { const o = nc!.a.o.swing!; o.t = o.contactT; o.contacted = true; m!.contact(nc!.a, o); }
       if (this.state !== "rally") return;
     }
@@ -594,6 +657,7 @@ export class Game {
   tick(dt: number): void {
     if (!this.rig.mixer) return;
     dt = Math.min(dt, 0.05); this.time += dt; const root = this.rig.root; const p = root.position;
+    if (Math.abs(this.input.right) > 0.25) { this.aimV = -this.input.right; this.aimT = this.time; }   // último empurrão lateral do direcional (mira)
     if (this.cover) { this.cam.yaw = 0.62 * Math.sin(this.time * 0.14); this.cam.pitch = 0.2 + 0.04 * Math.sin(this.time * 0.09); this.cam.dist = this.camera.aspect < 0.8 ? 16 : 12.5; }
     if (this.state === "dead") {
       this.deadTimer -= dt; this.reactT += dt;
@@ -610,7 +674,8 @@ export class Game {
       const cyw = Math.cos(this.cam.yaw), syw = Math.sin(this.cam.yaw);   // direcional relativo à câmera (com a câmera atrás da jogadora: frente = parede)
       const mx = -this.input.right * cyw + this.input.fwd * syw, mz = this.input.fwd * cyw + this.input.right * syw;
       const sm = this.speedMul(); let tx = mx * MAX_SIDE * sm, tz = mz * (mz >= 0 ? MAX_SPEED : MAX_BACK) * sm; const k = Math.min(1, 10 * dt);
-      if (this.state === "dead" && S.autoServe && this.reactT > this.walkAt && Math.hypot(this.input.right, this.input.fwd) < 0.2) {   // depois do ponto volta andando à posição de saque
+      const lock = this.serveLocked(); if (lock) tx = tz = 0;   // vez dela de sacar: o direcional não a tira do lugar
+      if (lock ? this.state === "wait" || this.reactT > this.walkAt : this.state === "dead" && S.autoServe && this.reactT > this.walkAt && Math.hypot(this.input.right, this.input.fwd) < 0.2) {   // depois do ponto volta andando à posição de saque
         const hm = this.homePos(), dx = hm.x - p.x, dz = hm.z - p.z, d = Math.hypot(dx, dz), sp = Math.min(WALK_HOME * sm, d * 2.5); tx = d > 0.04 ? dx / d * sp : 0; tz = d > 0.04 ? dz / d * sp : 0;
       }
       if (this.match && this.match.over !== null) {   // partida acabada: ninguém volta ao saque; se a jogadora venceu, vai andando ao ponto de comemoração, longe da rede, e dança
@@ -639,6 +704,7 @@ export class Game {
     } else if (this.state === "serve") { if (!(this.match && this.match.serveAi)) this.serveStep(dt); else this.cue = null; }
     else { this.cue = null; if (this.swing) this.swing.t += dt * this.swing.s; if (this.state === "dead") for (let r = dt; r > 1e-6; r -= 1 / 120) stepBall(this.ball, Math.min(r, 1 / 120), this.tun); }   // depois do ponto a bola ainda quica e rola
 
+    { const c = this.swing; if (this.cancelFollow && c && c.contacted && c.kind !== "serve" && !c.preview && !this.viewer && Math.hypot(this.input.right, this.input.fwd) > 0.35) c.endT = Math.min(c.endT, c.t + 0.1 * c.s); }   // depois do contato, empurrar o direcional encurta o gesto e devolve a corrida (antes ficava presa ~0,4 s)
     const sw = this.swing;
     if (sw) {
       const pr = Math.max(0, Math.min(1, (sw.t - sw.startT) / (sw.contactT - sw.startT))); const e = pr * pr * (3 - 2 * pr);
@@ -703,7 +769,7 @@ export class Game {
     this.ballShadow.scale.setScalar(Math.max(0.4, 1.2 - b.y * 0.25));
     this.playerShadow.position.set(p.x, 0.01, p.z);
     const c = this.cue, v = c ? { ttp: c.press - this.time, reach: c.shift <= this.reachR(), win: WIN.good * S.timing, label: this.cueOut ? "Fora! Deixa passar" : strokeOf(c.clip)?.label ?? "", out: this.cueOut } : null;
-    this.marker.update(c && v ? { x: c.x1, z: c.z1, ...v } : null, this.ballMesh.position); this.onCue(v);
+    this.marker.update(c && v ? { x: c.x1, z: c.z1, ...v } : null, this.ballMesh.position); this.onCue(v); this.aimTick(dt);
     if (this.calls.length || this.callsOn) {   // balões de chamada: ficam ~1,1 s, sobem um pouco e somem
       this.calls = this.calls.filter((c) => (c.t += dt) < 1.1);
       const out: { text: string; x: number; y: number; team: number; a: number }[] = [];
@@ -715,6 +781,17 @@ export class Game {
     }
     const sta = this.stamina.value; if (Math.abs(sta - this.staSent) > 0.004) { this.staSent = sta; this.onStamina(sta, this.stamina.mul()); }
     this.setCamera(false, dt);
+  }
+
+  /** mira lateral do golpe (−1 a 1): o direcional de agora; se está solto, o último empurrão desde 0,12 s antes do aperto — empurrar o direcional e apertar o GOLPE juntos, soltando logo em seguida, não perde a mira (quem corre, para e só aperta depois não mira sem querer) */
+  private aimOf(sw: Swing): number { const r = this.input.right; return Math.abs(r) <= 0.25 && sw.t0 !== undefined && this.aimT >= sw.t0 - this.aimPre ? this.aimV : -r; }
+
+  /** partida, durante o balanço: marcador de queda na quadra adversária (mira do direcional + tempo + força) e barra de força na tela */
+  private aimTick(dt: number): void {
+    const sw = this.swing, on = !!this.match && S.force && !!sw && !sw.contacted && !sw.whiff && !sw.preview && sw.D !== undefined && this.state === "rally";
+    if (!on) { this.aimMark.update(null, dt); this.onPower(null); return; }
+    const f = this.holdFrac(sw!), pw = powerOf(f);
+    this.aimMark.update(this.match!.preview(sw!.clip, qualityOf(sw!.err), this.aimOf(sw!), pw), dt); this.onPower({ f, pw, hold: !!sw!.hold });
   }
 
   private setCamera(snap: boolean, dt = 0.016): void {

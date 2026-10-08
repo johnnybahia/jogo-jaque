@@ -36,7 +36,7 @@ const SPECS: Array<[string, Spec[]]> = [
 export function initUI(game: Game, version: string): { showUpdate: (fn: () => void) => void } {
   const toast = $("toast"); let tt = 0;
   const hitFx = $("hitFx"); let th = 0;
-  game.onToast = (m, sub) => {
+  game.onToast = (m, sub, ms) => {
     if (/^(Perfeito|Bom!|Cedo|Tarde|Longe|Saque!)/.test(m)) {   // resultado da batida e nome do golpe: texto pequeno ao lado dos botões, não no meio da tela
       const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^Saque/.test(m) ? "serve" : "miss";
       hitFx.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; hitFx.appendChild(el); }
@@ -44,7 +44,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     }
     toast.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; toast.appendChild(el); }
     const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^(Cedo|Tarde|Longe|Sem fôlego)/.test(m) ? "miss" : /^Ponto!/.test(m) ? "win" : /^Ponto da/.test(m) ? "lose" : /^Saque/.test(m) ? "serve" : /^(ACE|SMASH|RALI DE)/.test(m) ? "big" : "";
-    toast.className = (k ? `k-${k} ` : "") + "on"; clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), sub ? 1300 : 900);
+    toast.className = (k ? `k-${k} ` : "") + "on"; clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), ms ?? (sub ? 1300 : 900));
   };
   const sta = $("sta"), staSegs: HTMLElement[] = [];   // fôlego em 10 segmentos
   for (let i = 0; i < 10; i++) { const e = document.createElement("i"); sta.appendChild(e); staSegs.push(e); }
@@ -61,6 +61,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     rallyEl.innerHTML = `<small>RALI</small><b>${game.rally}</b>${m ? "" : `<small class="rec">RECORDE ${game.record}</small>`}`; rallyEl.classList.toggle("idle", m && game.rally === 0);
     if (game.rally !== lastRally) { rallyEl.classList.remove("bump"); void rallyEl.offsetWidth; if (game.rally > 0) rallyEl.classList.add("bump"); lastRally = game.rally; }
     $("info").textContent = m ? game.info.split(" · erro")[0] : game.info;
+    $("serveBtn").hidden = m && (S.autoServe || game.match?.currentServer() !== null || game.match?.over !== null);   // na partida o SACAR só existe no saque manual e na vez dela
   };
   game.onHud = upd; upd();
 
@@ -70,10 +71,11 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     const L = Math.hypot(dx, dy), R = 50, k = L > R ? R / L : 1; const x = dx * k, y = dy * k;
     knob.style.transform = `translate(${x}px,${y}px)`; game.input.right = x / R; game.input.fwd = -y / R;
   };
-  zone.addEventListener("pointerdown", (e) => { if (jid >= 0) return; jid = e.pointerId; zone.setPointerCapture(jid); cx = e.clientX; cy = e.clientY; base.style.display = "block"; base.style.left = `${cx}px`; base.style.top = `${cy}px`; setKnob(0, 0); });
+  zone.addEventListener("pointerdown", (e) => { if (jid >= 0 && !zone.hasPointerCapture(jid)) jid = -1; if (jid >= 0) return; jid = e.pointerId; zone.setPointerCapture(jid); cx = e.clientX; cy = e.clientY; base.style.display = "block"; base.style.left = `${cx}px`; base.style.top = `${cy}px`; setKnob(0, 0); });
   zone.addEventListener("pointermove", (e) => { if (e.pointerId === jid) setKnob(e.clientX - cx, e.clientY - cy); });
   const end = (e: PointerEvent) => { if (e.pointerId !== jid) return; jid = -1; base.style.display = "none"; game.input.right = 0; game.input.fwd = 0; };
-  zone.addEventListener("pointerup", end); zone.addEventListener("pointercancel", end);
+  zone.addEventListener("pointerup", end); zone.addEventListener("pointercancel", end); zone.addEventListener("lostpointercapture", end);   // perder a captura (ligação, troca de app) também solta o direcional
+  addEventListener("blur", () => { if (jid >= 0) { jid = -1; base.style.display = "none"; game.input.right = 0; game.input.fwd = 0; } });
   zone.style.position = "fixed"; base.style.position = "fixed";
 
   // teclado
@@ -83,14 +85,26 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     const k = e.key.toLowerCase();
     if (game.viewer && (k === "escape" || k === "arrowleft" || k === "arrowright" || k === " ")) { if (k === "escape") game.viewClose(); else if (k === " ") game.viewPause(); else game.viewStep(k === "arrowleft" ? -1 : 1); e.preventDefault(); return; }
     if (k === "g") { if (game.viewer) game.viewClose(); else openView(); return; }
-    if (k === " ") { game.manualSwing(); e.preventDefault(); } else if (k === "enter") game.serve();
+    if (k === " ") { if (!e.repeat && game.manualSwing()) game.setHold(true); e.preventDefault(); } else if (k === "enter") game.serve();
     else if (k === "q") game.orbit(0.12, 0); else if (k === "e") game.orbit(-0.12, 0); else if (k === "+" || k === "=") game.zoom(0.9); else if (k === "-") game.zoom(1.1); else if (k === "r") game.recenter(); else if (k === "c") game.cycleCam();
     else { keys.add(k); kbd(); }
   });
-  addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); kbd(); });
-  $("swingBtn").addEventListener("pointerdown", (e) => { e.preventDefault(); game.manualSwing(); });
+  addEventListener("keyup", (e) => { if (e.key === " ") game.setHold(false); keys.delete(e.key.toLowerCase()); kbd(); });
+  // GOLPE: apertar = tempo (como sempre); segurar até a bola bater = força (partida). Soltar, cancelar, perder o foco ou esconder a aba encerram a carga com o valor de agora
+  const swingBtn = $("swingBtn");
+  swingBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); try { swingBtn.setPointerCapture(e.pointerId); } catch { /* sem captura */ } if (game.manualSwing()) game.setHold(true); });
+  const letGo = (): void => game.setHold(false);
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) swingBtn.addEventListener(ev, letGo);
+  addEventListener("blur", letGo); document.addEventListener("visibilitychange", () => { if (document.hidden) letGo(); });
+  const pbar = $("powerBar"), pfill = pbar.firstElementChild as HTMLElement; let pf = -1, pz = "", pon = false;   // barra de força: só enquanto o dedo está no botão
+  game.onPower = (v) => {
+    const on = !!v && v.hold; if (on !== pon) { pon = on; pbar.classList.toggle("on", on); }
+    if (!v) return;
+    const f = Math.round(v.f * 200) / 200, z = f <= 0.3 ? "0" : f <= 0.75 ? "1" : "2";
+    if (f !== pf) { pf = f; pfill.style.transform = `scaleX(${f})`; } if (z !== pz) { pz = z; pbar.dataset.z = z; }
+  };
   // aviso de tempo: o anel em volta do GOLPE encolhe até fechar no botão (apertar agora); verde = janela de acerto
-  const ring = $("timeRing"), swingBtn = $("swingBtn");
+  const ring = $("timeRing");
   const cueName = $("cueName");
   game.onCue = (v) => {
     if (!v) { ring.style.opacity = "0"; swingBtn.classList.remove("now"); cueName.classList.remove("on"); return; }
@@ -146,7 +160,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     panel.innerHTML = `<div class="ph"><span><b>Beach Tênis</b> <small>v${version}</small></span><button type="button">✕ Fechar</button></div>`;
     panel.querySelector<HTMLButtonElement>(".ph button")!.onclick = () => { panel.hidden = true; }; panel.appendChild(pwaBox);
     const qh = document.createElement("h3"); qh.textContent = "Qualidade gráfica"; panel.appendChild(qh);
-    const ql = document.createElement("label"); ql.innerHTML = `<span>Nível<select><option value="auto">Auto (recomendado)</option><option value="alta">Alta</option><option value="media">Média</option><option value="baixa">Baixa</option></select></span><small class="qnow"></small>`;
+    const ql = document.createElement("label"); ql.innerHTML = `<span>Nível<select><option value="auto">Auto (recomendado: abre na máxima que o aparelho aguenta)</option><option value="alta">Alta (fixa)</option><option value="media">Média</option><option value="baixa">Baixa</option></select></span><small class="qnow"></small>`;
     const qs = ql.querySelector("select")!, qn = ql.querySelector(".qnow")!; qs.value = game.quality.choice;
     const QD: Record<string, string> = { alta: "sombras nítidas, bloom e cor de cinema", media: "sombras do sol e vinheta", baixa: "sem sombras do sol, sem nuvens" };
     const qshow = () => { qn.textContent = `Agora: ${game.quality.label()} — ${QD[game.quality.tier]}`; };
@@ -164,8 +178,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
       chips.appendChild(b);
     }
     panel.appendChild(chips);
-    const chk = (key: "auto" | "autoServe" | "stamina" | "footprints", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); }; panel.appendChild(l); };
-    chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("stamina", "Fôlego (quem corre mais cansa e fica mais lenta)"); chk("footprints", "Marcas dos pés na areia");
+    const chk = (key: "auto" | "autoServe" | "stamina" | "footprints" | "force", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); game.onHud(); }; panel.appendChild(l); };
+    chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("stamina", "Fôlego (quem corre mais cansa e fica mais lenta)"); chk("footprints", "Marcas dos pés na areia"); chk("force", "Partida: marcador de queda e força (segure o GOLPE até a bola bater)");
     for (const [title, specs] of SPECS) {
       const h = document.createElement("h3"); h.textContent = title; panel.appendChild(h);
       for (const sp of specs) {
