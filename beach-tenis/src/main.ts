@@ -16,8 +16,8 @@ async function boot(): Promise<void> {
   initPwa((reg) => ui.showUpdate(() => applyUpdate(reg)));
   await game.init(import.meta.env.BASE_URL);
   window.__game = game; (window as unknown as Record<string, unknown>).__S = S; (window as unknown as Record<string, unknown>).__PW = PW;   // ganchos de teste
-  const ld = document.querySelector("#loading small"); if (ld) ld.textContent = "Preparando os gráficos para o seu aparelho…";
-  await game.warmUp();   // carrega o pós-processamento e compila tudo antes de abrir: já começa na qualidade final
+  const ld = document.querySelector("#loading small"); if (ld) ld.textContent = "Preparando os gráficos…";
+  await game.warmUp();   // carrega o pós-processamento e compila tudo antes de abrir (nada compila no meio do jogo); não muda a qualidade
   document.getElementById("loading")!.remove();
   addEventListener("resize", () => game.resize());
   let last = performance.now();
