@@ -76,6 +76,12 @@ body.match #staWrap small{display:none}
 #swingBtn{width:104px;height:104px;font-size:22px;background:radial-gradient(circle at 34% 26%,#ffb066,#ff6a00 52%,#d94800)}
 #serveBtn{width:74px;height:74px;font-size:16px;background:radial-gradient(circle at 34% 26%,#59b0ff,#1b6fb4 56%,#0f4f86)}
 #btns button:active{transform:scale(.95)}
+/* barra de força: aparece acima do GOLPE só enquanto o dedo segura (toque rápido nem pisca); cinza = toque normal, lima = força, laranja = arriscado */
+#powerBar{position:absolute;left:50%;bottom:calc(100% + 9px);width:96px;height:9px;margin-left:-48px;border-radius:999px;background:var(--glass2);border:1px solid var(--line);overflow:hidden;opacity:0;transition:opacity .1s;pointer-events:none}
+#powerBar.on{opacity:1;transition:opacity .12s .12s}
+#powerBar::after{content:"";position:absolute;left:30%;top:0;bottom:0;width:2px;margin-left:-1px;background:#ffffff73}
+#powerBar i{display:block;width:100%;height:100%;transform:scaleX(0);transform-origin:left;background:#8fa3b5}
+#powerBar[data-z="1"] i{background:var(--lime)}#powerBar[data-z="2"] i{background:#ff8a30}
 
 /* placar de transmissão */
 #score{position:fixed;top:max(10px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);width:min(330px,calc(100vw - 132px));background:linear-gradient(180deg,rgba(14,44,68,.94),rgba(8,26,41,.94));border:1px solid var(--line);border-radius:14px;padding:5px 9px 6px 0;box-shadow:0 4px 16px #000a;font-weight:800;pointer-events:none;z-index:3;overflow:hidden}
