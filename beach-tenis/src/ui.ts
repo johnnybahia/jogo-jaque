@@ -162,7 +162,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     panel.innerHTML = `<div class="ph"><span><b>Beach Tênis</b> <small>v${version}</small></span><button type="button">✕ Fechar</button></div>`;
     panel.querySelector<HTMLButtonElement>(".ph button")!.onclick = () => { panel.hidden = true; }; panel.appendChild(pwaBox);
     const qh = document.createElement("h3"); qh.textContent = "Qualidade gráfica"; panel.appendChild(qh);
-    const ql = document.createElement("label"); ql.innerHTML = `<span>Nível<select><option value="auto">Auto (recomendado: abre na máxima que o aparelho aguenta)</option><option value="alta">Alta (fixa)</option><option value="media">Média</option><option value="baixa">Baixa</option></select></span><small class="qnow"></small>`;
+    const ql = document.createElement("label"); ql.innerHTML = `<span>Nível<select><option value="auto">Auto (recomendado: começa pelo que o aparelho aguenta e só desce se travar)</option><option value="alta">Alta (fixa: a mais nítida)</option><option value="media">Média</option><option value="baixa">Baixa</option></select></span><small class="qnow"></small>`;
     const qs = ql.querySelector("select")!, qn = ql.querySelector(".qnow")!; qs.value = game.quality.choice;
     const QD: Record<string, string> = { alta: "sombras nítidas, bloom e cor de cinema", media: "sombras do sol e vinheta", baixa: "sem sombras do sol, sem nuvens" };
     const qshow = () => { qn.textContent = `Agora: ${game.quality.label()} — ${QD[game.quality.tier]}`; };

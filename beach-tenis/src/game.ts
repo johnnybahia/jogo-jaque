@@ -94,7 +94,7 @@ export class Game {
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
-  vfx!: Fx; lastKind = ""; lastKey = ""; private swingers = new Map<object, Swinger>(); shadowsOn = false; private post: Post | null = null; private postWanted = false; private postLoad: Promise<void> | null = null; benchMs = 0 /* último tempo medido por quadro na calibração (diagnóstico) */; private tipDone = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
+  vfx!: Fx; lastKind = ""; lastKey = ""; private swingers = new Map<object, Swinger>(); shadowsOn = false; private post: Post | null = null; private postWanted = false; private postLoad: Promise<void> | null = null; private tipDone = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
   readonly quality = new Quality(); atm!: Atmosphere; net!: Net; props!: Props; private courtMask!: { value: number };   // hora do dia: céu, mar, luz e névoa; rede com pano; adereços da praia
 
   constructor(canvas: HTMLCanvasElement) {
@@ -270,33 +270,14 @@ export class Game {
   }
 
   /** antes de abrir o jogo: espera o que a qualidade escolhida usa (pós-processamento da Alta), compila TODOS os materiais da cena (partida, adversárias e efeitos ainda escondidos) e desenha alguns quadros,
-   *  para nada engasgar na primeira vez que aparece e o jogo já abrir na qualidade final. Tem limite de tempo para nunca prender a tela de carregamento. */
+   *  para nada engasgar na primeira vez que aparece. NÃO muda a qualidade: o Auto abre no nível inicial dele (a medição que descia de resolução na abertura deixava a imagem borrada). Tem limite de tempo para nunca prender a tela de carregamento. */
   async warmUp(): Promise<void> {
-    const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)), deadline = performance.now() + 10000;
+    const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
     try {
       if (this.postLoad) await Promise.race([this.postLoad, wait(6000)]);
       await Promise.race([this.renderer.compileAsync(this.scene, this.camera), wait(8000)]);
-      if (this.quality.auto) await this.calibrate(deadline);
       for (let i = 0; i < 3; i++) { this.render(0.016); await wait(0); }
     } catch { /* abre mesmo assim */ }
-  }
-
-  /** só no Auto: mede o aparelho na tela de carregamento (cada quadro espera a GPU terminar) e fica no melhor degrau que fecha em até 12 ms por quadro (a cena de capa é mais leve que uma partida de duplas, daí a folga);
-   *  assim o jogo abre já no nível que o aparelho aguenta. Se o tempo acaba, deixa como está (o Auto de dentro do jogo ainda protege). */
-  private async calibrate(deadline: number): Promise<void> {
-    const gl = this.renderer.getContext(), px = new Uint8Array(4), wait = () => new Promise<void>((r) => setTimeout(r, 0));
-    const bench = async (): Promise<number> => {
-      const ts: number[] = [];
-      for (let i = 0; i < 11 && performance.now() < deadline; i++) { const t0 = performance.now(); this.render(0.016); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); if (i >= 3) ts.push(performance.now() - t0); await wait(); }
-      ts.sort((a, b) => a - b); return ts.length ? ts[ts.length >> 1] : 0;
-    };
-    for (let guard = 0; guard < 5 && performance.now() < deadline; guard++) {
-      const ms = await bench(); this.benchMs = +ms.toFixed(1); if (ms <= 12) break;
-      const t0 = this.quality.tier; if (!this.quality.stepDown()) break;   // onChange → applyQuality
-      if (this.postLoad) await Promise.race([this.postLoad, wait()]);
-      if (this.quality.tier !== t0) await Promise.race([this.renderer.compileAsync(this.scene, this.camera), new Promise<void>((r) => setTimeout(r, 4000))]);
-    }
-    this.quality.settle();
   }
 
   resize(): void {

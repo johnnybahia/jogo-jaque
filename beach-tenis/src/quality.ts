@@ -1,6 +1,6 @@
-/** Qualidade gráfica: três níveis (Alta, Média, Baixa) e o modo Auto (padrão). O Auto abre SEMPRE tentando a Alta: na tela de carregamento o jogo mede o aparelho (`Game.calibrate`) e já abre no melhor degrau que ele sustenta,
- *  então em celular bom roda na máxima o tempo todo e em celular fraco desce antes de abrir, sem engasgar jogando. Depois disso o Auto só desce (nunca sobe sozinho) se o FPS cair de verdade por alguns segundos;
- *  a cada abertura ele tenta de novo um degrau acima do que ficou salvo. A Alta fixa (⚙) nunca muda sozinha: só avisa (`slow`) se o aparelho engasgar.
+/** Qualidade gráfica: três níveis (Alta, Média, Baixa) e o modo Auto (padrão), que começa pelo que o aparelho aparenta aguentar (celular ou tela pequena → Média; computador → Alta) e só desce um degrau quando o FPS
+ *  cai de verdade por alguns segundos (nunca sobe sozinho; a cada abertura tenta de novo um degrau acima do que ficou salvo). Não mede nada na abertura: a medição da v2/v3 descia para a resolução reduzida
+ *  (imagem borrada) mesmo em aparelho que sustentava o jogo. A Alta fixa (⚙) nunca muda sozinha: só avisa (`slow`) se o aparelho engasgar.
  *  `?q=alta|media|baixa` na URL força o nível (sem Auto e sem salvar): serve aos testes automáticos. */
 export type Tier = "alta" | "media" | "baixa";
 export type Choice = Tier | "auto";
@@ -20,13 +20,15 @@ export const TIER_NAMES: Record<Tier, string> = { alta: "Alta", media: "Média",
 const STEPS: { tier: Tier; scale: number }[] = [
   { tier: "alta", scale: 1 }, { tier: "media", scale: 1 }, { tier: "media", scale: 0.85 }, { tier: "baixa", scale: 0.85 }, { tier: "baixa", scale: 0.7 },
 ];
-const KEY = "bt.quality.v3";   // v3: todo aparelho volta ao Auto uma vez (Alta/Média/Baixa fixas ou degraus presos de versões antigas deixam de valer); a partir daí o que a pessoa escolher em ⚙ fica salvo
+const KEY = "bt.quality.v4", KEY_V3 = "bt.quality.v3";   // v4: volta ao Auto de antes; o degrau que a calibragem da v2/v3 salvou (podia estar na resolução reduzida, borrada) não vale mais — de antes só passa uma escolha fixa feita em ⚙
 const WINDOW = 2, FPS_MIN = 38, BAD_WINDOWS = 2, COOLDOWN = 6, GRACE = 4, SLOW_FPS = 28, SLOW_WINDOWS = 5;   // SLOW: Alta/Média fixas abaixo de 28 FPS por 10 s seguidos → aviso único
 
-/** degrau em que o Auto começa a medir: a Alta (a medição na tela de carregamento decide se fica); aparelho com 2 GB ou menos já começa na Baixa */
+/** degrau inicial do Auto: celular/tablet (toque) ou tela pequena → Média; computador → Alta; aparelho com 2 GB ou menos → Baixa */
 export function detectStep(): number {
+  const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  const small = Math.min(innerWidth, innerHeight) < 700;
   const mem = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8;
-  return mem <= 2 ? 3 : 0;
+  return mem <= 2 ? 3 : coarse || small ? 1 : 0;
 }
 
 export class Quality {
@@ -40,8 +42,10 @@ export class Quality {
     const q = new URLSearchParams(location.search).get("q");
     if (q === "alta" || q === "media" || q === "baixa") { this.forced = q; this.choice = q; return; }
     try {
-      const r = JSON.parse(localStorage.getItem(KEY) || "null") as { choice?: string; step?: number } | null;
+      const rd = (k: string) => JSON.parse(localStorage.getItem(k) || "null") as { choice?: string; step?: number } | null;
+      const r = rd(KEY);
       if (r && (r.choice === "auto" || r.choice === "alta" || r.choice === "media" || r.choice === "baixa")) this.choice = r.choice;
+      else { const o = rd(KEY_V3); if (o && (o.choice === "alta" || o.choice === "media" || o.choice === "baixa")) this.choice = o.choice; }   // a escolha fixa feita na v3 vale; o Auto da v3 (degrau calibrado) recomeça do inicial
       this.step = this.choice === "auto" && typeof r?.step === "number" ? Math.max(0, Math.min(STEPS.length - 1, (r.step | 0) - 1)) : -1;   // Auto: tenta de novo um degrau acima do salvo
     } catch { this.step = -1; }
     if (this.step < 0) this.step = detectStep();
@@ -61,11 +65,6 @@ export class Quality {
   }
 
   private save(): void { try { localStorage.setItem(KEY, JSON.stringify({ choice: this.choice, step: this.step })); } catch { /* sem storage */ } }
-
-  /** na medição da tela de carregamento: desce um degrau (false se já está no último) */
-  stepDown(): boolean { if (this.step >= STEPS.length - 1) return false; this.step++; this.bad = 0; this.cool = GRACE; this.onChange(); return true; }
-  /** fim da medição: guarda o degrau escolhido */
-  settle(): void { this.cool = GRACE; this.save(); }
 
   /** qualidade fixa (não Auto) e o aparelho engasgando de verdade: devolve true UMA vez (por abertura) para avisar o que fazer; não muda nada sozinho. Chamar a cada quadro com o tempo real (s). */
   slow(dt: number): boolean {
