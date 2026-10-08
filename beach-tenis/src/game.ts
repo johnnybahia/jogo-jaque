@@ -84,6 +84,7 @@ export class Game {
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
+  cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
   readonly quality = new Quality(); atm!: Atmosphere; net!: Net; props!: Props; private courtMask!: { value: number };   // hora do dia: céu, mar, luz e névoa; rede com pano; adereços da praia
 
   constructor(canvas: HTMLCanvasElement) {
@@ -115,11 +116,12 @@ export class Game {
     this.fx = new PoseFX(this.rig); this.foot.bind(this.rig.model); this.animate(0); this.rig.root.updateMatrixWorld(true); this.foot.calibrate();
     this.looks = await loadLooks(base);   // visuais das outras atletas (a adversária do single é a Bia: rosa e roxo)
     this.opp = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Bia", look: this.looks.get("bia") }); this.opp.walker = this.foot.track(this.opp.rig.model);
-    this.setCamera(true);
+    this.setCamera(true); if (this.pendingCover) this.coverOn(true);
   }
 
   /** treino na parede ou partida contra a adversária: troca cenário, física (parede × rede) e posições */
   setMode(mode: "train" | "match"): void {
+    if (mode === "train" && this.cover) { this.cover = false; this.camEdit = false; }   // quem sai da capa para o treino (ou para a galeria) não fica travado
     this.mode = mode; this.viewClose(); this.intent = null; this.stopDance(); this.calls = [];
     const m = mode === "match"; if (!m) { this.match = null; this.onScore(null); }
     if (!m) this.doubles = false;
@@ -145,6 +147,7 @@ export class Game {
   /** começa uma partida (formato e nível das adversárias; "single" 1×1 ou "duplas" 2×2 com a parceira IA no nível difícil); quem saca primeiro é a jogadora */
   startMatch(fmtId = "rapida", lvlId = "medio", mode: "single" | "duplas" = "single"): void {
     if (!this.opp) return;
+    if (this.cover) this.coverOn(false);   // sai da capa (o menu já fez isso; vale para quem chama direto)
     this.doubles = mode === "duplas"; if (this.doubles) this.ensureDoubles();
     this.setMode("match"); this.matchEnded = false; this.danced = false;
     this.match = new Match(this, { partner: this.doubles ? this.partner : null, foes: this.doubles && this.opp2 ? [this.opp, this.opp2] : [this.opp] }, FORMATS[fmtId] ?? FORMATS.rapida, LEVELS[lvlId] ?? LEVELS.medio, 0);
@@ -221,6 +224,14 @@ export class Game {
     this.rig.applyRacketTransform(S, S.playerScale);
     if (recalc) { this.rig.calibrate(S.contactOffset); this.candAll = null; }
     this.ballMesh.scale.setScalar(S.ballVisual);
+  }
+
+  /** capa aberta: a quadra da partida ao pôr do sol aparece atrás do menu, com a câmera girando devagar em volta (as atletas ficam nos lugares, sem rali) */
+  coverOn(on: boolean): void {
+    if (on && !this.opp) { this.pendingCover = true; return; }   // ainda carregando: liga ao terminar
+    this.pendingCover = false; if (this.cover === on) return;
+    this.cover = on; this.camEdit = on;
+    if (on) this.setMode("match"); else this.applyCam();
   }
 
   /** aplica o nível de qualidade (resolução agora; sombras, pós e adereços nas próximas fases) */
@@ -562,6 +573,7 @@ export class Game {
   tick(dt: number): void {
     if (!this.rig.mixer) return;
     dt = Math.min(dt, 0.05); this.time += dt; const root = this.rig.root; const p = root.position;
+    if (this.cover) { this.cam.yaw = 0.62 * Math.sin(this.time * 0.14); this.cam.pitch = 0.2 + 0.04 * Math.sin(this.time * 0.09); this.cam.dist = this.camera.aspect < 0.8 ? 16 : 12.5; }
     if (this.state === "dead") {
       this.deadTimer -= dt; this.reactT += dt;
       if (this.match) {   // partida: as duas voltam aos lugares e o ponto seguinte começa (ou acaba a partida)
@@ -620,7 +632,7 @@ export class Game {
     if (this.mode === "match") for (const o of this.aiBodies()) if (o.walker > 0) fsp[o.walker] = o.speed;
     this.foot.update(dt, fsp);
     this.syncVisuals(dt);
-    this.atm.setTarget(S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera.position); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
+    this.atm.setTarget(this.cover ? 0.8 : S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera.position); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
   }
 
   private animate(dt: number): void {
@@ -681,10 +693,10 @@ export class Game {
   }
 
   private setCamera(snap: boolean, dt = 0.016): void {
-    const dn = this.danceWho !== null, p = dn ? this.danceFocus(this.oppPos) : this.rig.root.position, { yaw, pitch, dist } = this.cam; const k = snap ? 1 : Math.min(1, 8 * dt);
+    const dn = this.danceWho !== null, cv = this.cover, p = cv ? this.coverFocus : dn ? this.danceFocus(this.oppPos) : this.rig.root.position, { yaw, pitch, dist } = this.cam; const k = snap ? 1 : Math.min(1, 8 * dt);
     const sy = Math.sin(yaw), cy = Math.cos(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
-    const lead = this.viewer || dn ? 0 : 4 * (1 - Math.min(1, pitch / 1.2));           // olha à frente da jogadora; de cima, olha para ela (na dança e na galeria, para quem está no centro)
-    const bx = p.x * (this.viewer || dn ? 1 : 0.6);                                    // segue 60% do deslocamento lateral (na galeria e na dança, centrada nela)
+    const lead = this.viewer || dn || cv ? 0 : 4 * (1 - Math.min(1, pitch / 1.2));           // olha à frente da jogadora; de cima, olha para ela (na dança e na galeria, para quem está no centro)
+    const bx = p.x * (this.viewer || dn || cv ? 1 : 0.6);                                    // segue 60% do deslocamento lateral (na galeria e na dança, centrada nela)
     const ty = dn ? (this.camera.aspect < 1 ? 0.4 : 0.95) : 1.1;                       // na dança olha mais para baixo: ela fica na parte de cima da tela, acima do cartão de fim
     const tp = new THREE.Vector3(bx - sy * cp * dist, ty + sp * dist, p.z - cy * cp * dist);
     this.camera.position.lerp(tp, k);

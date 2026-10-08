@@ -2,36 +2,14 @@
 html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#fff;touch-action:none;overscroll-behavior:none}
 #c{position:fixed;inset:0;width:100%;height:100%;display:block}
 #camZone{position:fixed;inset:0;touch-action:none;cursor:grab}
-#camBtns{position:fixed;right:max(10px,env(safe-area-inset-right));top:calc(max(8px,env(safe-area-inset-top)) + 52px);display:flex;flex-direction:column;gap:8px}
-#camBtns button{width:40px;height:40px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:20px;line-height:1;padding:0}
-#hud{position:fixed;top:max(10px,env(safe-area-inset-top));left:12px;font-weight:700;text-shadow:0 1px 3px #000a}
-#rally{font-size:20px}#info{font-size:12px;opacity:.85;margin-top:2px;font-weight:500}
-#staWrap{margin-top:5px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;opacity:.95}
-#sta{width:110px;height:9px;border-radius:5px;background:#0009;overflow:hidden;box-shadow:0 0 0 1px #ffffff40}
-#sta i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#35e06a,#d8f23a);transition:width .15s}
-#sta.low i{background:linear-gradient(90deg,#ff4a4a,#ff9a2e)}
-#gear{position:fixed;top:max(8px,env(safe-area-inset-top));right:10px;width:44px;height:44px;border-radius:50%;border:0;background:#0007;color:#fff;font-size:22px}
-#leftBtns{position:fixed;top:calc(max(10px,env(safe-area-inset-top)) + 70px);left:12px;display:flex;flex-direction:column;align-items:flex-start;gap:8px}
-#leftBtns button{border:0;border-radius:999px;padding:7px 13px;color:#fff;font-weight:800;font-size:13px;box-shadow:0 2px 8px #0008}
-#installChip{background:#ff6a00}#viewBtn{background:#1b6fb4}
-#installChip:disabled{background:#0b1620cc;color:#fff;font-weight:600}#installChip.ok{background:#1f9d55}
-#toast{position:fixed;z-index:7;top:22%;left:0;right:0;text-align:center;font-size:28px;font-weight:800;text-shadow:0 2px 6px #000b;opacity:0;transition:opacity .25s;pointer-events:none}
-#toast.on{opacity:1}
-#toast small{display:block;font-size:16px;font-weight:700;opacity:.92;margin-top:2px}
-#cueName{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 116px);padding:5px 12px;border-radius:999px;background:#0b1620cc;color:#fff;font-weight:800;font-size:14px;opacity:0;transition:opacity .15s;pointer-events:none;max-width:70vw;text-align:center}
-#cueName.on{opacity:1}
 .viewing #cueName{display:none}
 #joyZone{position:fixed;left:0;bottom:0;width:55%;height:55%}
 #joyBase{position:absolute;width:110px;height:110px;border-radius:50%;background:#ffffff22;border:2px solid #ffffff55;display:none;transform:translate(-50%,-50%)}
 #knob{position:absolute;left:50%;top:50%;width:48px;height:48px;margin:-24px;border-radius:50%;background:#ffffffaa}
-#btns{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:max(16px,env(safe-area-inset-bottom));display:flex;gap:12px;align-items:flex-end}
-#btns button{border:0;border-radius:50%;font-weight:800;color:#fff;box-shadow:0 3px 10px #0008}
-#swingBtn{width:104px;height:104px;background:#ff6a00;font-size:18px}
 #swingWrap{position:relative;width:104px;height:104px}
 #timeRing{position:absolute;left:0;top:0;width:104px;height:104px;box-sizing:border-box;border-radius:50%;border:5px solid #fff;pointer-events:none;opacity:0;transition:opacity .15s}
 #timeRing[data-st=near]{border-color:#ffd23a}#timeRing[data-st=now]{border-color:#35e06a;border-width:8px}#timeRing[data-st=late]{border-color:#ff9a2e}#timeRing[data-st=bad]{border-color:#ff4a4a}#timeRing[data-st=out]{border-color:#8fa3b5;border-style:dashed}
 #swingBtn.now{box-shadow:0 0 0 7px #35e06a99,0 3px 10px #0008}
-#serveBtn{width:72px;height:72px;background:#1b6fb4;font-size:13px}
 #panel{position:fixed;z-index:5;top:0;right:0;bottom:0;width:min(330px,88vw);background:#0b1620ee;overflow:auto;padding:14px 14px 40px;touch-action:pan-y;font-size:13px}
 #panel h3{margin:14px 0 6px;font-size:13px;color:#ffb36b;text-transform:uppercase;letter-spacing:.05em}
 #panel label{display:block;margin:7px 0}#panel label span{display:flex;justify-content:space-between}
@@ -43,7 +21,6 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 #panel pre{white-space:pre-wrap;font-size:11px;max-height:160px;overflow:auto;background:#0006;padding:6px;border-radius:6px;user-select:text}
 #upd{position:fixed;left:50%;bottom:max(130px,env(safe-area-inset-bottom));transform:translateX(-50%);display:flex;gap:12px;align-items:center;background:#0b1620f2;border:1px solid #ff6a00;padding:10px 14px;border-radius:12px;font-weight:600;z-index:5}
 #upd button{background:#ff6a00;color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:800}
-#loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0d2b3e;font-size:20px;z-index:9}
 #viewBar{position:fixed;left:0;right:0;bottom:0;z-index:4;display:flex;flex-direction:column;gap:8px;padding:26px 12px max(12px,env(safe-area-inset-bottom));background:linear-gradient(#0000,#0b1620ee 34%)}
 #viewSel{width:100%;padding:9px 10px;border-radius:10px;border:0;background:#2a3b4a;color:#fff;font-size:15px;font-weight:700}
 #viewSeek{width:100%;margin:2px 0}
@@ -52,45 +29,14 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0d2b3e;font-family:sy
 .viewing #btns,.viewing #joyZone,.viewing #leftBtns,.viewing #hud{display:none}
 #panel .ph{position:sticky;top:-14px;margin:-14px -14px 0;padding:12px 14px;background:#0b1620;display:flex;align-items:center;gap:8px;z-index:1}#panel .ph b{flex:1}#panel .ph button{margin:0;padding:6px 12px;background:#ff6a00;font-weight:800}
 [hidden]{display:none!important}
-#menuBtn{background:#2a3b4a}
-#score{position:fixed;top:max(10px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);min-width:168px;background:#0b1620d9;border-radius:12px;padding:6px 10px 5px;box-shadow:0 2px 10px #0009;font-weight:800;pointer-events:none;z-index:3}
-#score .sc-row{display:flex;align-items:center;gap:6px;height:24px;font-size:13px}
-#score .sc-name{flex:1;white-space:nowrap}#score .sc-srv{width:10px;color:#d8f23a;font-size:11px}
-#score .sc-s,#score .sc-g{min-width:20px;text-align:center;font-size:15px;color:#ffb36b}#score .sc-p{min-width:34px;text-align:center;font-size:16px;background:#ffffff1c;border-radius:6px;padding:1px 4px}
-#score .sc-row.you .sc-name{color:#fff}#score .sc-row.opp .sc-name{color:#cfe3f4}
-#score .sc-foot{font-size:10px;font-weight:700;opacity:.75;text-align:center;margin-top:2px;letter-spacing:.03em}
-#score .dec{color:#ff6a00;opacity:1}
-#endCard{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;align-items:center;gap:4px;background:linear-gradient(#0b162000,#0b1620ee 36%);text-align:center;padding:48px 16px max(14px,env(safe-area-inset-bottom));pointer-events:none;animation:ecIn .6s ease both}
-#endCard button{pointer-events:auto}@keyframes ecIn{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
 body.ended #btns,body.ended #joyZone,body.ended #leftBtns{display:none}
-@media (max-height:520px){#endCard{flex-direction:row;flex-wrap:wrap;justify-content:center;align-items:center;gap:2px 14px;padding:22px 12px 8px}#endCard h2{font-size:22px}#endCard p{font-size:14px}#endCard p:first-of-type,#endCard small{display:none}#endCard .btns{margin-top:0}#endCard button{padding:8px 16px;font-size:14px}}
-#endCard h2{margin:0;font-size:32px;text-shadow:0 2px 8px #000a}#endCard p{margin:0;font-size:18px;font-weight:700;opacity:.92}#endCard small{opacity:.75}
-#endCard .btns{display:flex;gap:10px;margin-top:8px}#endCard button{border:0;border-radius:12px;padding:13px 20px;font-size:16px;font-weight:800;color:#fff;background:#2a3b4a}#endCard button.main{background:#ff6a00}
-#cover{position:fixed;inset:0;z-index:8;display:flex;background:radial-gradient(120% 90% at 50% 0%,#1b6fb4 0%,#0d2b3e 62%,#07151f 100%);overflow:auto;padding:16px;touch-action:pan-y}
-.cv-card{margin:auto;width:min(380px,100%);display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
-.cv-head,.cv-body{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}
-.cv-logo{width:min(34vh,150px);height:auto;filter:drop-shadow(0 6px 14px #0008)}
-.cv-card h1{margin:2px 0 0;font-size:30px;line-height:1.05;letter-spacing:.02em}.cv-card h1 span{color:#ff6a00}
-.cv-sub{margin:-4px 0 4px;font-size:15px;font-weight:800;letter-spacing:.38em;text-transform:uppercase;color:#d8f23a}
-.cv-card button{border:0;border-radius:14px;padding:13px 16px;font-size:15px;font-weight:800;color:#fff;background:#2a3b4a;box-shadow:0 3px 10px #0007}
-.cv-card button.cv-main{width:100%;font-size:21px;padding:16px;background:#ff6a00}
-.cv-row{display:flex;gap:10px;width:100%}.cv-row label{flex:1;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.95;text-align:left}
-.cv-row select{padding:10px 8px;border-radius:10px;border:0;background:#ffffff1f;color:#fff;font-size:14px;font-weight:700}.cv-row select option{color:#000}
-.cv-row2{display:flex;gap:8px;width:100%}.cv-row2 button{flex:1;padding:12px 6px;font-size:13px}
 #cvRankBox{width:100%;background:#0b1620cc;border-radius:12px;padding:10px 12px;font-size:13px;text-align:left}
 #cvRankBox table{width:100%;border-collapse:collapse}#cvRankBox td,#cvRankBox th{padding:3px 4px;text-align:center}#cvRankBox th{font-size:11px;opacity:.7;font-weight:700}#cvRankBox .l{text-align:left}
 #cvRankBox h3{margin:8px 0 4px;font-size:12px;color:#ffb36b;text-transform:uppercase;letter-spacing:.05em}
-.cv-foot{margin:6px 0 0;font-size:12px;opacity:.6}
 body.menu #hud,body.menu #btns,body.menu #joyZone,body.menu #leftBtns,body.menu #camBtns,body.menu #gear,body.menu #score{display:none}
-@media (max-height:520px){.cv-logo{width:84px}.cv-card{gap:6px}.cv-card h1{font-size:24px}.cv-card button.cv-main{padding:11px;font-size:18px}}
-#score .sc-sta{height:4px;border-radius:2px;background:#0009;margin-top:4px;overflow:hidden}#score .sc-sta i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#35e06a,#d8f23a);transition:width .2s}
 body.match #viewBtn{display:none}
 body.match #staWrap small{display:none}body.match #sta{width:80px}
 
-.cv-cam{display:flex;flex-direction:column;gap:4px;width:100%;text-align:left}.cv-lab{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;opacity:.95}
-.cv-camrow{display:flex;gap:8px}#cvCams{display:flex;gap:6px;flex:1}
-.cv-card #cvCams button{flex:1;padding:8px 2px;font-size:12px;line-height:1.15;background:#ffffff1f;box-shadow:none}.cv-card #cvCams button b{display:block;font-size:15px}.cv-card #cvCams button.on{background:#ff6a00}
-.cv-card button#cvCamEdit{padding:8px 12px;font-size:12px}
 #camEdit{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;gap:8px;padding:30px 12px max(12px,env(safe-area-inset-bottom));background:linear-gradient(#0b162000,#0b1620f2 26%);pointer-events:none}
 #camEdit>*{pointer-events:auto}
 #ceEye{position:absolute;right:12px;top:-34px;width:42px;height:34px;border:0;border-radius:10px;background:#0009;color:#fff;font-size:18px;padding:0}#camEdit.min{background:none}#camEdit.min>*:not(#ceEye){display:none}#camEdit small{opacity:.7;text-align:center;font-size:11px;pointer-events:none}
@@ -99,12 +45,9 @@ body.match #staWrap small{display:none}body.match #sta{width:80px}
 .ce-btns{display:flex;gap:8px}.ce-btns button{flex:1;padding:12px 0;border:0;border-radius:10px;background:#2a3b4a;color:#fff;font-size:14px;font-weight:800}.ce-btns button.main{flex:2;background:#ff6a00}.ce-btns button.main:disabled{background:#2a3b4a;opacity:.75}
 body.camedit #hud,body.camedit #btns,body.camedit #joyZone,body.camedit #leftBtns,body.camedit #gear,body.camedit #score,body.camedit #cueName,body.camedit #camCycle{display:none}
 @media (max-height:520px){#camEdit{display:grid;grid-template-columns:1fr 1fr;grid-template-areas:"t b" "s s";gap:6px 12px;padding:14px 12px 8px}#ceTabs{grid-area:t}.ce-btns{grid-area:b}.ce-sl{grid-area:s;flex-direction:row;gap:14px}.ce-sl label{flex:1;grid-template-columns:auto 1fr auto;gap:6px}#camEdit small{display:none}#ceTabs button,.ce-btns button{padding:7px 4px;font-size:13px}}
-.cv-hint{margin:-2px 0 2px;font-size:12px;line-height:1.3;opacity:.8;text-align:center}
 #calls{position:fixed;inset:0;pointer-events:none;z-index:3;overflow:hidden}
 #calls .call{position:absolute;transform:translate(-50%,-100%);padding:2px 9px;border-radius:10px;background:#0b1620d9;color:#fff;font-size:14px;font-weight:800;white-space:nowrap;border:2px solid #35e0c0;text-shadow:0 1px 2px #000a}
 #calls .call.t1{border-color:#ff5aa8}
 body.menu #calls,body.camedit #calls{display:none}
 /* celular deitado: título à esquerda, controles à direita (cabe sem rolar) */
-@media (max-height:520px) and (min-width:560px){#cover{padding:10px 16px}.cv-card{width:min(800px,100%);flex-direction:row;gap:26px}.cv-head{flex:0 0 34%;width:auto;gap:6px}.cv-logo{width:min(34vh,120px)}.cv-body{flex:1;min-width:0;gap:6px}.cv-row select{padding:7px 8px}.cv-card #cvCams button{padding:5px 2px}.cv-card button#cvCamEdit{padding:5px 12px}.cv-row2 button{padding:9px 6px}.cv-hint{font-size:11px;margin:0}.cv-foot{margin:0}.cv-card button.cv-main{padding:9px}}
-@media (max-width:400px) and (min-height:521px){.cv-card h1{font-size:26px}.cv-logo{width:min(22vh,124px)}.cv-card{gap:8px}}
 #panel select{margin-left:8px;padding:6px 8px;border-radius:8px;border:0;background:#ffffff1f;color:#fff;font-size:13px;font-weight:700}#panel select option{color:#000}#panel .qnow{display:block;opacity:.65;margin-top:2px}

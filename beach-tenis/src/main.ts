@@ -1,4 +1,5 @@
 import "./style.css";
+import "./hud.css";
 import { Game } from "./game";
 import { initUI } from "./ui";
 import { initPwa, applyUpdate } from "./pwa";
