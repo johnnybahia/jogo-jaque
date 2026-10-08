@@ -1,4 +1,6 @@
-# Duplas e Single — proposta (nada implementado; aguardando decisão do autor)
+# Duplas e Single — proposta e decisões
+
+> **Decisões do autor (respondidas):** controle **A** — a jogadora controla uma só e a parceira é IA no nível **difícil**; o single **não** precisa ser estreitado (fica 16 × 8 m); por enquanto todas são a mesma Jaqueline com **cores de roupa e boné diferentes e uma loira** (Lari loira/coral, Bia rosa/roxo, Duda verde). **Implementado** (fases 0, 1 e parte da 2): ver "Duplas (2 × 2) e Single" em `CONTEXTO_BEACH_TENIS.md`. Balões "Minha!/Sua!/Fora!" feitos. Pendente: "Troca!" (lob por cima de quem está na rede), "no buraco" (hesitação das adversárias no meio), entrosamento da parceira, personagens próprias. A proposta original segue abaixo.
 
 Base: `GUIA_DUPLAS_BEACH_TENNIS.md` (regras da dupla, enviado pelo autor) + pesquisa de jogos parecidos. Pedido do autor: opções **Duplas** e **Single**, 2 atletas de cada lado, "de um jeito que o usuário goste".
 

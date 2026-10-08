@@ -39,6 +39,11 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     toast.classList.add("on"); clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), sub ? 1300 : 900);
   };
   const sta = $("sta"), staBar = sta.firstElementChild as HTMLElement;
+  const calls = $("calls");   // balões de chamada das duplas ("Minha!", "Sua!", "Fora!"): um elemento por balão, reaproveitado
+  game.onCalls = (list) => {
+    while (calls.children.length < list.length) { const e = document.createElement("div"); e.className = "call"; calls.appendChild(e); }
+    for (let i = 0; i < calls.children.length; i++) { const e = calls.children[i] as HTMLElement, c = list[i]; if (!c) { e.style.display = "none"; continue; } e.style.display = ""; e.textContent = c.text; e.className = `call t${c.team}`; e.style.left = `${c.x}%`; e.style.top = `${c.y}%`; e.style.opacity = String(c.a); }
+  };
   game.onStamina = (v) => { staBar.style.width = `${Math.round(v * 100)}%`; sta.classList.toggle("low", v < 0.3); };
   const upd = () => { $("rally").textContent = game.mode === "match" ? `Rali ${game.rally}` : `Rali ${game.rally} · Recorde ${game.record}`; $("info").textContent = game.info; };
   game.onHud = upd; upd();
