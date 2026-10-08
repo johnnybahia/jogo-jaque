@@ -13,6 +13,7 @@ import { PoseFX } from "./posefx";
 import { WallFx } from "./wallfx";
 import { Dust } from "./dust";
 import { Opponent } from "./opponent";
+import { loadLooks } from "./looks";
 import { Dancer, pickDance } from "./dance";
 import { CAMS, CAM_NAMES, CamPose, cleanPose } from "./camera";
 import { Match, LEVELS, ScoreView, inCourt } from "./match";
@@ -58,7 +59,7 @@ export class Game {
   wallFx: WallFx; dust: Dust;
   dancer = new Dancer(); danceWho: Side | null = null; private danced = false; private lastDance: string | null = null; private camPrev: { yaw: number; pitch: number; dist: number } | null = null; private camUser = -99; private oppPos = new THREE.Vector3();   // dança de vitória: quem dança, se já começou, a última sorteada, câmera de antes e último toque do usuário na câmera
   match: Match | null = null; onScore: (v: ScoreView | null) => void = () => {}; onMatchEnd: (winner: Side, v: ScoreView) => void = () => {}; private matchEnded = false;
-  mode: "train" | "match" = "train"; opp: Opponent | null = null; private envTrain: THREE.Group; private envMatch: THREE.Group; private shadowMat: THREE.Material;   // treino na parede ou partida contra a adversária
+  looks = new Map<string, THREE.Texture>(); mode: "train" | "match" = "train"; opp: Opponent | null = null; private envTrain: THREE.Group; private envMatch: THREE.Group; private shadowMat: THREE.Material;   // treino na parede ou partida contra a adversária
   fx: PoseFX | null = null; private fxBall = new THREE.Vector3();   // vida do personagem: olhar na bola, respiração, inclinação
   stamina = new Stamina(); private tired = false; private staSent = -1;   // fôlego: gasta correndo; sem fôlego a corrida fica mais lenta
   onStamina: (v: number, mul: number) => void = () => {};
@@ -101,7 +102,8 @@ export class Game {
     this.rig.faceAssist = S.faceAssist; this.rig.applyRacketTransform(S, S.playerScale); this.rig.findPeaks();
     this.applySettings();
     this.fx = new PoseFX(this.rig); this.foot.bind(this.rig.model); this.animate(0); this.rig.root.updateMatrixWorld(true); this.foot.calibrate();
-    this.opp = new Opponent(this.rig, this.scene, this.shadowMat);
+    this.looks = await loadLooks(base);   // visuais das outras atletas (a adversária do single é a Bia: rosa e roxo)
+    this.opp = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Adversária", look: this.looks.get("bia") });
     this.setCamera(true);
   }
 
