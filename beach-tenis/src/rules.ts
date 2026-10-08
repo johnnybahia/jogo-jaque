@@ -49,6 +49,14 @@ export class Score {
     }
   }
 
+  /** andamento da partida de 0 a 1 (move a hora do dia): games jogados sobre o esperado (~1,5·games por set; melhor de 3 ≈ 2,5 sets) mais a fração do game em curso; o fim vale 1 */
+  progress(): number {
+    if (this.winner !== null) return 1;
+    const g = this.fmt.games, total = (this.fmt.setsToWin === 1 ? 1 : 2.5) * 1.5 * g;
+    const played = this.history.reduce((a, [x, y]) => a + x + y, 0) + this.games[0] + this.games[1] + Math.min(0.8, (this.points[0] + this.points[1]) / 6);
+    return Math.min(0.97, played / total);
+  }
+
   /** texto do placar do game: ["0","15"], ["40","30"]…; no tie-break, a contagem corrida */
   pointText(): [string, string] {
     if (this.inTiebreak) return [String(this.points[0]), String(this.points[1])];

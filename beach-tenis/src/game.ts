@@ -6,6 +6,7 @@ import { buildEnvironment, buildMatchCourt, blobTexture, COURT, MATCH, NET_H } f
 import { S, loadRecord, saveRecord } from "./settings";
 import { Footprints } from "./footprints";
 import { Quality } from "./quality";
+import type { Atmosphere } from "./atmosphere";
 import { CueMarker } from "./cuemark";
 import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
 import { Stamina } from "./stamina";
@@ -44,7 +45,7 @@ export interface LogEntry { t: number; type: string; [k: string]: unknown; }
 
 export class Game {
   scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(55, 1, 0.1, 150);
+  camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1500);
   renderer: THREE.WebGLRenderer;
   rig = new Rig(); foot: Footprints;
   ball: Ball = newBall();
@@ -81,13 +82,13 @@ export class Game {
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
-  readonly quality = new Quality();
+  readonly quality = new Quality(); atm!: Atmosphere;   // hora do dia: céu, mar, luz e névoa
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.quality.onChange = () => this.applyQuality(); this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.envTrain = buildEnvironment(this.scene, import.meta.env.BASE_URL).train; this.envMatch = buildMatchCourt(this.scene); this.foot = new Footprints(this.scene);
+    const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.envMatch = buildMatchCourt(this.scene); this.foot = new Footprints(this.scene);
     const bt = blobTexture();
     const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false }); this.shadowMat = bm;
     this.playerShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), bm); this.playerShadow.rotation.x = -Math.PI / 2; this.playerShadow.position.y = 0.01; this.scene.add(this.playerShadow);
@@ -95,14 +96,14 @@ export class Game {
     this.ballMesh = new THREE.Group(); this.ballMesh.add(new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 20, 14), new THREE.MeshStandardMaterial({ color: 0xd8f23a, emissive: 0x6a7a10, roughness: 0.7 }))); this.scene.add(this.ballMesh);
     this.ballMesh.visible = false; this.ballShadow.visible = false;
     this.marker = new CueMarker(this.scene); this.wallFx = new WallFx(this.scene); this.dust = new Dust(this.scene); this.foot.onPlant = (x, z, sp) => this.dust.puff(x, z, sp);
-    this.resize();
+    this.applyQuality();
   }
 
   async init(base: string): Promise<void> {
     await this.rig.load(base);
     try {
       const l = new GLTFLoader(); l.setMeshoptDecoder(MeshoptDecoder); const bg = await l.loadAsync(base + "models/ball_green.glb");
-      bg.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { const mt = m.material as THREE.MeshStandardMaterial; mt.emissive = mt.color.clone().multiplyScalar(0.45); mt.roughness = 0.8; mt.metalness = 0; } });
+      bg.scene.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) { const mt = m.material as THREE.MeshStandardMaterial; mt.emissive = mt.color.clone().multiplyScalar(0.8); mt.roughness = 0.8; mt.metalness = 0; } });
       this.ballMesh.clear(); this.ballMesh.add(bg.scene);
     } catch { /* mantém a esfera */ }
     this.scene.add(this.rig.root);
@@ -147,7 +148,7 @@ export class Game {
     this.match = new Match(this, { partner: this.doubles ? this.partner : null, foes: this.doubles && this.opp2 ? [this.opp, this.opp2] : [this.opp] }, FORMATS[fmtId] ?? FORMATS.rapida, LEVELS[lvlId] ?? LEVELS.medio, 0);
     this.stamina.reset(); for (const o of this.aiBodies()) o.stamina.reset();
     if (this.doubles) { this.match.placeAll(); const h = this.match.homeOfHuman(); this.rig.root.position.set(h.x, 0, h.z); }   // duplas: cada uma no seu lugar de saque
-    this.onScore(this.match.view());
+    this.onScore(this.match.view()); this.atm.setTarget(S.tod ? (S.tod - 1) / 2 : 0, true);   // a partida começa de manhã
     this.nextPoint(); this.onHud();
   }
   endMatch(): void { this.setMode("train"); }
@@ -221,7 +222,10 @@ export class Game {
   }
 
   /** aplica o nível de qualidade (resolução agora; sombras, pós e adereços nas próximas fases) */
-  applyQuality(): void { this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio)); this.resize(); }
+  applyQuality(): void {
+    this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio)); this.resize();
+    this.atm.clouds = this.quality.tier !== "baixa"; this.atm.waves = this.quality.tier === "baixa" ? 0.5 : 1;
+  }
 
   resize(): void {
     const w = window.innerWidth, h = window.innerHeight;
@@ -613,6 +617,7 @@ export class Game {
     if (this.mode === "match") for (const o of this.aiBodies()) if (o.walker > 0) fsp[o.walker] = o.speed;
     this.foot.update(dt, fsp);
     this.syncVisuals(dt);
+    this.atm.setTarget(S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera.position);
   }
 
   private animate(dt: number): void {
