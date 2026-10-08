@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Atmosphere } from "./atmosphere";
+import { Net } from "./net";
 import { buildSky, buildSea, buildRidge, buildSandGeometry, makeNoiseTexture, SHORE } from "./sky";
 
 export const COURT = { wallZ: 11, wallW: 6, wallH: 3 };
@@ -11,7 +12,7 @@ function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => 
   draw(cv.getContext("2d")!); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 }
 
-export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THREE.WebGLRenderer): { train: THREE.Group; atmosphere: Atmosphere } {
+export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THREE.WebGLRenderer): { train: THREE.Group; atmosphere: Atmosphere; courtMask: { value: number } } {
   const train = new THREE.Group(); scene.add(train);
   renderer.toneMapping = THREE.NeutralToneMapping;   // preserva as cores de base (pele, roupas) e comprime os brilhos do sol
   const fog = new THREE.Fog(0xcfe8f5, 30, 190); scene.fog = fog;
@@ -19,7 +20,7 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
   const sun = new THREE.DirectionalLight(0xfff2d6, 1.9); scene.add(sun, sun.target);
   const fill = new THREE.DirectionalLight(0xdce9ff, 0.5); fill.position.set(2, 10, -16); scene.add(fill, fill.target);   // vem de trás da câmera: o rosto da jogadora não fica só em contraluz
 
-  const sky = buildSky(makeNoiseTexture(), true); scene.add(sky.mesh);
+  const noise = makeNoiseTexture(); const sky = buildSky(noise, true); scene.add(sky.mesh);
   const sea = buildSea(); scene.add(sea.mesh);
   const far = buildRidge(330, 14, 42, 3.3, true), near = buildRidge(165, 3, 9, 7.1, true); scene.add(far.mesh, near.mesh);
 
@@ -29,11 +30,21 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
   });
   sand.wrapS = sand.wrapT = THREE.RepeatWrapping;
   const sandMat = new THREE.MeshStandardMaterial({ map: sand, roughness: 1 });
-  // areia molhada perto do mar: escurece e fica mais lisa (x em metros do mundo)
+  // areia: (1) variação de tom em escala grande (a textura repete a cada 4 m e isso denunciava o azulejo), (2) molhada perto do mar: escurece e fica mais lisa,
+  // (3) quadra rastelada: faixas paralelas à rede e um tom um pouco mais claro dentro de 16 × 8 m (+ margem), só na partida
+  const courtMask = { value: 0 };
   sandMat.onBeforeCompile = (sh) => {
-    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying float vWx;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvWx = (modelMatrix * vec4(transformed, 1.0)).x;");
-    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vWx;")
-      .replace("#include <map_fragment>", `#include <map_fragment>\n float wet = 1.0 - smoothstep(${(SHORE.x0 - 8).toFixed(1)}, ${(SHORE.x0 + 2).toFixed(1)}, vWx); diffuseColor.rgb *= mix(1.0, 0.55, wet);`)
+    sh.uniforms.uNoise = { value: noise }; sh.uniforms.uCourt = courtMask;
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWp;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvWp = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWp; uniform sampler2D uNoise; uniform float uCourt;")
+      .replace("#include <map_fragment>", `#include <map_fragment>
+        vec2 wxz = vWp.xz;
+        float macro = texture2D(uNoise, wxz * 0.011).r * 0.6 + texture2D(uNoise, wxz * 0.047 + 0.37).g * 0.4;
+        diffuseColor.rgb *= 0.86 + 0.28 * macro;
+        float wet = 1.0 - smoothstep(${(SHORE.x0 - 8).toFixed(1)}, ${(SHORE.x0 + 2).toFixed(1)}, vWp.x); diffuseColor.rgb *= mix(1.0, 0.55, wet);
+        float inX = 1.0 - smoothstep(4.9, 6.6, abs(wxz.x)); float inZ = smoothstep(-2.6, -0.9, wxz.y) * (1.0 - smoothstep(16.9, 18.6, wxz.y));
+        float court = inX * inZ * uCourt; float rake = 0.5 + 0.5 * sin(wxz.y * 41.0 + 1.3 * sin(wxz.x * 2.3));
+        diffuseColor.rgb *= 1.0 + court * (0.05 + 0.05 * (rake - 0.5));`)
       .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n roughnessFactor *= mix(1.0, 0.6, wet);");
   };
   const floor = new THREE.Mesh(buildSandGeometry(), sandMat); scene.add(floor);
@@ -66,32 +77,25 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
   const line = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
   const l1 = new THREE.Mesh(new THREE.PlaneGeometry(0.06, COURT.wallZ + 4), line); l1.rotation.x = -Math.PI / 2; l1.position.set(0, 0.005, (COURT.wallZ - 4) / 2); train.add(l1);
   for (const x of [-4.5, 4.5]) { const l = l1.clone(); l.position.x = x; train.add(l); }
-  return { train, atmosphere };
+  return { train, atmosphere, courtMask };
 }
 
 export function blobTexture(): THREE.CanvasTexture {
   return canvasTex(64, 64, (c) => { const g = c.createRadialGradient(32, 32, 2, 32, 32, 30); g.addColorStop(0, "rgba(0,0,0,0.55)"); g.addColorStop(1, "rgba(0,0,0,0)"); c.fillStyle = g; c.fillRect(0, 0, 64, 64); });
 }
 
-/** quadra de partida: linhas de 16 × 8 m e rede de 1,70 m no meio (z = MATCH.netZ), com fita branca e postes */
-export function buildMatchCourt(scene: THREE.Scene): THREE.Group {
+/** quadra de partida: fitas azuis de 5 cm de 16 × 8 m com estacas nos cantos e rede de 1,70 m no meio (z = MATCH.netZ), com pano que balança, fita branca e postes acolchoados */
+export function buildMatchCourt(scene: THREE.Scene): { group: THREE.Group; net: Net } {
   const g = new THREE.Group(); g.visible = false; scene.add(g);
-  const line = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
-  const strip = (w: number, l: number, x: number, z: number) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l), line); m.rotation.x = -Math.PI / 2; m.position.set(x, 0.006, z); g.add(m); };
-  const W = MATCH.halfW, L = MATCH.len, T = 0.07;
+  const ribbon = new THREE.MeshStandardMaterial({ color: 0x2680ea, emissive: 0x0b3f86, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  const strip = (w: number, l: number, x: number, z: number, m: THREE.Material = ribbon) => { const s = new THREE.Mesh(new THREE.PlaneGeometry(w, l), m); s.rotation.x = -Math.PI / 2; s.position.set(x, 0.006, z); g.add(s); };
+  const W = MATCH.halfW, L = MATCH.len, T = 0.08;   // fita de 8 cm (a oficial tem 5): de longe 5 cm some e a linha decide o ponto
   strip(2 * W + T, T, 0, 0); strip(2 * W + T, T, 0, L); strip(T, L + T, -W, L / 2); strip(T, L + T, W, L / 2);   // fundo, fundo, laterais
-  strip(2 * W, T * 0.6, 0, MATCH.netZ);                                                                       // projeção da rede
-  const tex = canvasTex(512, 64, (c) => {
-    c.fillStyle = "rgba(20,24,30,0.18)"; c.fillRect(0, 0, 512, 64);
-    c.strokeStyle = "rgba(15,18,24,0.75)"; c.lineWidth = 1.4;
-    for (let x = 0; x <= 512; x += 8) { c.beginPath(); c.moveTo(x, 6); c.lineTo(x, 64); c.stroke(); }
-    for (let y = 6; y <= 64; y += 8) { c.beginPath(); c.moveTo(0, y); c.lineTo(512, y); c.stroke(); }
-    c.fillStyle = "#ffffff"; c.fillRect(0, 0, 512, 7);
-  });
-  const nw = 2 * W + 0.6, nh = 0.9;
-  const net = new THREE.Mesh(new THREE.PlaneGeometry(nw, nh), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
-  net.position.set(0, NET_H - nh / 2, MATCH.netZ); g.add(net);
-  const pole = new THREE.MeshStandardMaterial({ color: 0xd9dde2, roughness: 0.5 });
-  for (const x of [-W - 0.3, W + 0.3]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, NET_H + 0.12, 14), pole); p.position.set(x, (NET_H + 0.12) / 2, MATCH.netZ); g.add(p); }
-  return g;
+  strip(2 * W, T * 0.5, 0, MATCH.netZ, new THREE.MeshStandardMaterial({ color: 0x1f72d6, roughness: 0.7, transparent: true, opacity: 0.45, depthWrite: false }));   // projeção da rede
+  // estacas que prendem as fitas: cantos, pés da rede e pontos intermediários
+  const pegs: [number, number][] = [[-W, 0], [W, 0], [-W, L], [W, L], [-W, MATCH.netZ], [W, MATCH.netZ], [0, 0], [0, L], [-W, L / 4], [W, L / 4], [-W, 3 * L / 4], [W, 3 * L / 4]];
+  const pm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.013, 0.01, 0.07, 6), new THREE.MeshStandardMaterial({ color: 0xff6a00, roughness: 0.6 }), pegs.length);
+  const mm = new THREE.Matrix4(); pegs.forEach(([x, z], i) => { pm.setMatrixAt(i, mm.makeTranslation(x, 0.03, z)); }); g.add(pm);
+  const net = new Net(W, NET_H, MATCH.netZ); g.add(net.group);
+  return { group: g, net };
 }
