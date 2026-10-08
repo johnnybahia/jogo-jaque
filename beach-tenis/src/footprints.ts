@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-const MAX = 200;
+const MAX = 560;   // anel compartilhado pelas 4 atletas
 const VERT = `attribute float aAlpha; varying vec2 vUv; varying float vA;
 void main(){ vUv = uv; vA = aAlpha; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`;
 const FRAG = `uniform sampler2D map; uniform vec3 tint; varying vec2 vUv; varying float vA;
@@ -16,13 +16,15 @@ function footTexture(): THREE.CanvasTexture {
 }
 
 interface FootState { bone: THREE.Object3D; toe: THREE.Object3D | null; planted: boolean; lifted: boolean; last: THREE.Vector3; left: boolean; }
+/** uma atleta que deixa marcas: os dois pés dela (a jogadora é a 0; as outras entram com `track`) */
+interface Walker { feet: FootState[]; }
 
 export class Footprints {
   enabled = true; life = 25; baseY = 0.1;
   onPlant: ((x: number, z: number, speed: number) => void) | null = null;   // pé pousou no chão (poeira)
   private mesh: THREE.InstancedMesh; private alpha: THREE.InstancedBufferAttribute;
   private born = new Float32Array(MAX).fill(-1e9); private peak = new Float32Array(MAX); private next = 0; private time = 0;
-  private feet: FootState[] = []; private m = new THREE.Matrix4(); private q = new THREE.Quaternion(); private v = new THREE.Vector3(); private s = new THREE.Vector3();
+  private walkers: Walker[] = []; private m = new THREE.Matrix4(); private q = new THREE.Quaternion(); private v = new THREE.Vector3(); private s = new THREE.Vector3();
   private tmp = new THREE.Vector3(); private tmp2 = new THREE.Vector3();
 
   constructor(scene: THREE.Scene) {
@@ -35,18 +37,24 @@ export class Footprints {
     scene.add(this.mesh);
   }
 
-  /** acha os ossos dos pés e mede a altura do tornozelo na pose de repouso (idle) */
-  bind(model: THREE.Object3D): void {
+  /** acha os ossos dos pés da jogadora (atleta 0) e mede a altura do tornozelo na pose de repouso (idle) */
+  bind(model: THREE.Object3D): void { this.walkers = []; this.track(model); }
+
+  /** passa a marcar também os pés de outra atleta (o mesmo esqueleto: usa a mesma altura de repouso); devolve o índice dela para `update` */
+  track(model: THREE.Object3D): number {
     const find = (re: RegExp) => { let r: THREE.Object3D | null = null; model.traverse((o) => { if (!r && re.test(o.name)) r = o; }); return r as THREE.Object3D | null; };
-    this.feet = [];
+    const feet: FootState[] = [];
     for (const left of [true, false]) {
       const b = find(left ? /LeftFoot$/ : /RightFoot$/); if (!b) continue;
-      this.feet.push({ bone: b, toe: find(left ? /LeftToeBase$/ : /RightToeBase$/), planted: true, lifted: false, last: new THREE.Vector3(), left });
+      feet.push({ bone: b, toe: find(left ? /LeftToeBase$/ : /RightToeBase$/), planted: true, lifted: false, last: new THREE.Vector3(), left });
     }
+    this.walkers.push({ feet }); return this.walkers.length - 1;
   }
 
+  get count(): number { return this.walkers.length; }
+
   calibrate(): void {
-    let mn = 1e9; for (const f of this.feet) { f.bone.getWorldPosition(this.tmp); mn = Math.min(mn, this.tmp.y); f.last.copy(this.tmp); }
+    let mn = 1e9; for (const f of this.walkers[0]?.feet ?? []) { f.bone.getWorldPosition(this.tmp); mn = Math.min(mn, this.tmp.y); f.last.copy(this.tmp); }
     if (mn < 1e8) this.baseY = mn;
   }
 
@@ -63,16 +71,21 @@ export class Footprints {
     this.born[i] = this.time; this.peak[i] = 0.6 + 0.35 * k;
   }
 
-  /** chamar com as matrizes do esqueleto já atualizadas; rootSpeed em m/s */
-  update(dt: number, rootSpeed: number): void {
+  /** chamar com as matrizes dos esqueletos já atualizadas; `speeds[i]` = velocidade da raiz da atleta i em m/s (negativa = fora de cena: não marca); um número só vale para a jogadora */
+  update(dt: number, speeds: number | number[]): void {
     this.time += dt; if (!this.enabled) { this.mesh.visible = false; return; } this.mesh.visible = true;
-    for (const f of this.feet) {
-      f.bone.getWorldPosition(this.tmp); const h = this.tmp.y - this.baseY; const sp = dt > 0 ? this.tmp.distanceTo(f.last) / dt : 0; f.last.copy(this.tmp);
-      if (h > 0.07) f.lifted = true;
-      if (h < 0.035 && sp < 1.4 + rootSpeed * 0.6) { if (f.lifted) { this.stamp(f, rootSpeed); f.lifted = false; } }
+    for (let w = 0; w < this.walkers.length; w++) {
+      const rootSpeed = typeof speeds === "number" ? (w === 0 ? speeds : -1) : (speeds[w] ?? -1);
+      for (const f of this.walkers[w].feet) {
+        f.bone.getWorldPosition(this.tmp); if (rootSpeed < 0) { f.last.copy(this.tmp); f.lifted = false; continue; }
+        const h = this.tmp.y - this.baseY; const sp = dt > 0 ? this.tmp.distanceTo(f.last) / dt : 0; f.last.copy(this.tmp);
+        if (h > 0.07) f.lifted = true;
+        if (h < 0.035 && sp < 1.4 + rootSpeed * 0.6) { if (f.lifted) { this.stamp(f, rootSpeed); f.lifted = false; } }
+      }
     }
     let dirty = false;
     for (let i = 0; i < MAX; i++) {
+      if (this.born[i] < -1e8) continue;   // vaga
       const age = this.time - this.born[i]; const a = age >= this.life ? 0 : this.peak[i] * Math.pow(1 - age / this.life, 1.3);
       if (this.alpha.getX(i) !== a) { this.alpha.setX(i, a); dirty = true; }
     }

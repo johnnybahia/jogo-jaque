@@ -79,7 +79,7 @@ export class Game {
   call(text: string, who: Opponent | null, team: number): void { this.calls = this.calls.filter((c) => c.who !== who); this.calls.push({ text, who, t: 0, team }); }
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
-  info = ""; private tmpV = new THREE.Vector3();
+  info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
@@ -109,7 +109,7 @@ export class Game {
     this.applySettings();
     this.fx = new PoseFX(this.rig); this.foot.bind(this.rig.model); this.animate(0); this.rig.root.updateMatrixWorld(true); this.foot.calibrate();
     this.looks = await loadLooks(base);   // visuais das outras atletas (a adversária do single é a Bia: rosa e roxo)
-    this.opp = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Bia", look: this.looks.get("bia") });
+    this.opp = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Bia", look: this.looks.get("bia") }); this.opp.walker = this.foot.track(this.opp.rig.model);
     this.setCamera(true);
   }
 
@@ -133,8 +133,8 @@ export class Game {
   aiBodies(): Opponent[] { return (this.doubles ? [this.partner, this.opp, this.opp2] : [this.opp]).filter((o): o is Opponent => !!o); }
   /** cria a parceira e a 2ª adversária na primeira vez que se joga em duplas */
   private ensureDoubles(): void {
-    if (!this.partner) this.partner = new Opponent(this.rig, this.scene, this.shadowMat, { dir: 1, name: "Lari", look: this.looks.get("lari") });
-    if (!this.opp2) this.opp2 = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Duda", look: this.looks.get("duda") });
+    if (!this.partner) { this.partner = new Opponent(this.rig, this.scene, this.shadowMat, { dir: 1, name: "Lari", look: this.looks.get("lari") }); this.partner.walker = this.foot.track(this.partner.rig.model); }
+    if (!this.opp2) { this.opp2 = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Duda", look: this.looks.get("duda") }); this.opp2.walker = this.foot.track(this.opp2.rig.model); }
   }
 
   /** começa uma partida (formato e nível das adversárias; "single" 1×1 ou "duplas" 2×2 com a parceira IA no nível difícil); quem saca primeiro é a jogadora */
@@ -603,7 +603,10 @@ export class Game {
     this.wallFx.update(dt); this.dust.update(dt); this.animate(dt); this.danceCam(dt);
     if (this.mode === "match") { const live = (this.state === "rally" || this.state === "serve") && this.ballMesh.visible ? this.ball : null; for (const o of this.aiBodies()) o.animate(dt, this.time, live); }
     this.rig.root.updateMatrixWorld(true);
-    this.foot.enabled = S.footprints; this.foot.life = S.footLife; this.foot.update(dt, this.swing ? 0 : Math.hypot(this.vx, this.vz));
+    this.foot.enabled = S.footprints; this.foot.life = S.footLife;
+    const fsp = this.footSp; fsp.length = 0; fsp[0] = this.swing ? 0 : Math.hypot(this.vx, this.vz);   // pegadas: a jogadora e, na partida, as outras atletas em quadra
+    if (this.mode === "match") for (const o of this.aiBodies()) if (o.walker > 0) fsp[o.walker] = o.speed;
+    this.foot.update(dt, fsp);
     this.syncVisuals(dt);
   }
 
