@@ -219,7 +219,8 @@ export class Game {
     this.stamina.restore(0.25); for (const o of this.aiBodies()) o.stamina.restore(0.25);
     const v = m.view(), pts = `${v.points[0]} – ${v.points[1]}`;
     const more = r.match !== undefined ? "Fim da partida" : r.set !== undefined ? "Set!" : r.game !== undefined ? `Game ${v.games[0]}–${v.games[1]}` : `${pts} · rali ${this.rally}`;
-    if (tag) this.onToast(tag, `${winner === 0 ? "Ponto!" : "Ponto da adversária"} · ${more}`); else this.onToast(`${winner === 0 ? "Ponto!" : "Ponto da adversária"} — ${reason}`, more);
+    const who = winner === 0 ? "Ponto!" : "Ponto da adversária";
+    if (tag) this.onToast(tag, `${who} · ${more}`); else this.onToast(who, `${reason} · ${more}`);
     if (winner === 0) { const t = this.dancersOf(0); let cx = 0, cz = 0; for (const m of t) { cx += m.rig.root.position.x; cz += m.rig.root.position.z; } this.vfx.confetti(cx / t.length, cz / t.length, r.game !== undefined ? 70 : 26, 2.2, 3.4); }
     this.emit("point", { winner, reason, rally: this.rally, games: v.games, points: v.points }); this.onScore(v); this.onHud();
   }

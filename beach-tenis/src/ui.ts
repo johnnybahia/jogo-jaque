@@ -35,7 +35,13 @@ const SPECS: Array<[string, Spec[]]> = [
 
 export function initUI(game: Game, version: string): { showUpdate: (fn: () => void) => void } {
   const toast = $("toast"); let tt = 0;
+  const hitFx = $("hitFx"); let th = 0;
   game.onToast = (m, sub) => {
+    if (/^(Perfeito|Bom!|Cedo|Tarde|Longe|Saque!)/.test(m)) {   // resultado da batida e nome do golpe: texto pequeno ao lado dos botões, não no meio da tela
+      const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^Saque/.test(m) ? "serve" : "miss";
+      hitFx.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; hitFx.appendChild(el); }
+      hitFx.className = `k-${k} on`; clearTimeout(th); th = window.setTimeout(() => hitFx.classList.remove("on"), sub ? 1100 : 800); return;
+    }
     toast.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; toast.appendChild(el); }
     const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^(Cedo|Tarde|Longe|Sem fôlego)/.test(m) ? "miss" : /^Ponto!/.test(m) ? "win" : /^Ponto da/.test(m) ? "lose" : /^Saque/.test(m) ? "serve" : /^(ACE|SMASH|RALI DE)/.test(m) ? "big" : "";
     toast.className = (k ? `k-${k} ` : "") + "on"; clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), sub ? 1300 : 900);
