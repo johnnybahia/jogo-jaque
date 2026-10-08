@@ -52,19 +52,22 @@ body.match #staWrap small{display:none}
 #installChip.ok{background:#1f9d55!important}
 #leftBtns button:active{transform:scale(.96)}
 
-/* avisos: Perfeito!, Bom!, Cedo!, Ponto… */
-#toast{position:fixed;z-index:7;top:calc(max(10px,env(safe-area-inset-top)) + 94px);left:50%;transform:translate(-50%,-6px) scale(.94);max-width:min(660px,calc(100vw - 140px));text-align:center;font:800 27px/1.05 var(--f-display);padding:5px 20px 7px;border-radius:16px;background:rgba(9,30,46,.62);border:1px solid var(--line);text-shadow:0 2px 6px #0009;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;white-space:normal}
-#toast.on{opacity:1;transform:translate(-50%,0) scale(1)}
-#toast small{display:block;font:700 14px/1.2 var(--f-ui);opacity:.92;margin-top:2px;letter-spacing:.01em}
-#toast.k-perfect{color:var(--lime);border-color:#d8f23a88}
-#toast.k-good{color:var(--sand)}
-#toast.k-miss{color:#ff9a5a;border-color:#ff9a5a66}
-#toast.k-win{color:#fff;background:linear-gradient(180deg,rgba(255,106,0,.78),rgba(214,70,0,.72));border-color:#ffb36b}
-#toast.k-lose{color:#dbe9f6;background:rgba(18,58,87,.78)}
-#toast.k-serve{color:#fff}
+/* avisos do ponto (Ponto!, Ponto da adversária, Game, ACE!…): faixa pequena logo abaixo do placar, longe do meio da quadra */
+#toast{position:fixed;z-index:7;top:calc(max(10px,env(safe-area-inset-top)) + 88px);left:50%;transform:translate(-50%,-4px);width:max-content;max-width:min(440px,calc(100vw - 150px));text-align:center;font:800 20px/1.05 var(--f-display);padding:3px 15px 5px;border-radius:12px;background:rgba(9,30,46,.5);border:1px solid var(--line);text-shadow:0 1px 4px #000a;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;white-space:normal}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+#toast small{display:block;font:700 12px/1.2 var(--f-ui);opacity:.92;margin-top:1px}
+#toast.k-win{color:#fff;background:linear-gradient(180deg,rgba(255,106,0,.72),rgba(214,70,0,.66));border-color:#ffb36b}
+#toast.k-lose{color:#dbe9f6;background:rgba(18,58,87,.7)}
+#toast.k-serve,#toast.k-miss{color:#fff}
+
+/* resultado da batida (Perfeito!, Bom!, Cedo!, Tarde!, Saque!) e nome do golpe: texto sem caixa no canto de baixo, ao lado dos botões — não cobre a quadra */
+#hitFx{position:fixed;right:max(64px,calc(env(safe-area-inset-right) + 58px));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 150px);text-align:right;font:800 25px/1 var(--f-display);letter-spacing:.01em;opacity:0;transform:translateY(6px);transition:opacity .12s,transform .12s;pointer-events:none;text-shadow:0 2px 0 #0008,0 0 8px #000b,0 0 16px #0007;max-width:60vw;white-space:nowrap}
+#hitFx.on{opacity:1;transform:none}
+#hitFx small{display:block;font:800 12px/1.2 var(--f-ui);margin-top:3px;color:#fff;opacity:.95;text-shadow:0 1px 2px #000c,0 0 6px #000a}
+#hitFx.k-perfect{color:var(--lime)}#hitFx.k-good{color:var(--sand)}#hitFx.k-miss{color:#ff9a5a}#hitFx.k-serve{color:#fff}
 
 /* nome do golpe pedido, acima dos botões */
-#cueName{position:fixed;right:max(14px,env(safe-area-inset-right));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 120px);padding:5px 14px;border-radius:999px;background:var(--glass2);border:1px solid var(--line);color:#fff;font:800 14px/1.15 var(--f-ui);opacity:0;transition:opacity .15s;pointer-events:none;max-width:70vw;text-align:center}
+#cueName{position:fixed;right:max(64px,calc(env(safe-area-inset-right) + 58px));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 120px);padding:5px 14px;border-radius:999px;background:var(--glass2);border:1px solid var(--line);color:#fff;font:800 14px/1.15 var(--f-ui);opacity:0;transition:opacity .15s;pointer-events:none;max-width:70vw;text-align:center}
 #cueName.on{opacity:1}
 
 /* GOLPE e SACAR */
@@ -117,18 +120,21 @@ body.match #staWrap small{display:none}
 
 /* celular deitado: pílulas e placar mais compactos */
 @media (max-height:520px){
-  #leftBtns{top:calc(max(10px,env(safe-area-inset-top)) + 84px);gap:6px}
+  #leftBtns{top:calc(max(10px,env(safe-area-inset-top)) + 90px);gap:6px}
   #leftBtns button{padding:5px 12px 5px 9px;font-size:12px}
   #score{width:min(300px,calc(100vw - 132px))}
   #score .sc-row{height:24px;font-size:13px}
   #score .sc-s,#score .sc-g{font-size:17px}#score .sc-p{font-size:18px;min-width:34px}
-  #toast{font-size:24px;top:calc(max(10px,env(safe-area-inset-top)) + 84px)}
+  #toast{font-size:18px;top:calc(max(10px,env(safe-area-inset-top)) + 84px)}
+  #hitFx{font-size:22px}
 }
 /* retrato: rali, fôlego e botões descem para baixo do placar (que ocupa o centro do topo) */
 @media (orientation:portrait){
-  #hud{top:calc(max(10px,env(safe-area-inset-top)) + 88px)}
-  #leftBtns{top:calc(max(10px,env(safe-area-inset-top)) + 88px + 98px)}
-  #toast{top:max(270px,34vh);max-width:calc(100vw - 48px);font-size:24px}
+  #hud{top:calc(max(10px,env(safe-area-inset-top)) + 138px)}
+  #leftBtns{top:calc(max(10px,env(safe-area-inset-top)) + 138px + 98px)}
+  #toast{top:calc(max(10px,env(safe-area-inset-top)) + 88px);max-width:calc(100vw - 150px);font-size:19px}
+  #hitFx,#cueName{right:max(14px,env(safe-area-inset-right))}
+  #hitFx{bottom:calc(max(16px,env(safe-area-inset-bottom)) + 156px)}
 }
 
 /* ===== capa: título sobre a quadra ao pôr do sol (a cena 3D aparece atrás), controles num painel de vidro ===== */
@@ -198,5 +204,5 @@ button,select,input,textarea{font-family:inherit}
 body.vig #vig{display:block}
 
 /* destaques do ponto: ACE!, SMASH!, RALI DE n! */
-#toast.k-big{font-size:42px;color:#fff;padding:5px 26px 8px;background:linear-gradient(180deg,rgba(255,138,48,.92),rgba(224,82,0,.9));border-color:#ffc58f;box-shadow:0 6px 26px #ff6a0077;letter-spacing:.02em;text-shadow:0 2px 0 #0003,0 4px 14px #0006}
-@media (max-height:520px){#toast.k-big{font-size:34px}}
+#toast.k-big{font-size:27px;color:#fff;padding:3px 20px 5px;background:linear-gradient(180deg,rgba(255,138,48,.92),rgba(224,82,0,.9));border-color:#ffc58f;box-shadow:0 6px 26px #ff6a0077;letter-spacing:.02em;text-shadow:0 2px 0 #0003,0 4px 14px #0006}
+@media (max-height:520px){#toast.k-big{font-size:23px}}
