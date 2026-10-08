@@ -37,7 +37,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   const toast = $("toast"); let tt = 0;
   game.onToast = (m, sub) => {
     toast.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; toast.appendChild(el); }
-    const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^(Cedo|Tarde|Longe|Sem fôlego)/.test(m) ? "miss" : /^Ponto!/.test(m) ? "win" : /^Ponto da/.test(m) ? "lose" : /^Saque/.test(m) ? "serve" : "";
+    const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^(Cedo|Tarde|Longe|Sem fôlego)/.test(m) ? "miss" : /^Ponto!/.test(m) ? "win" : /^Ponto da/.test(m) ? "lose" : /^Saque/.test(m) ? "serve" : /^(ACE|SMASH|RALI DE)/.test(m) ? "big" : "";
     toast.className = (k ? `k-${k} ` : "") + "on"; clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), sub ? 1300 : 900);
   };
   const sta = $("sta"), staSegs: HTMLElement[] = [];   // fôlego em 10 segmentos
