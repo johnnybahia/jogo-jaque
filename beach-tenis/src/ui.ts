@@ -90,6 +90,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     else { keys.add(k); kbd(); }
   });
   addEventListener("keyup", (e) => { if (e.key === " ") game.setHold(false); keys.delete(e.key.toLowerCase()); kbd(); });
+  // iPhone: dois dedos ao mesmo tempo (direcional + GOLPE) não podem virar gesto de zoom do Safari, que cancelaria os dois toques
+  for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(t, (e) => e.preventDefault(), { passive: false });
   // GOLPE: apertar = tempo (como sempre); segurar até a bola bater = força (partida). Soltar, cancelar, perder o foco ou esconder a aba encerram a carga com o valor de agora
   const swingBtn = $("swingBtn");
   swingBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); try { swingBtn.setPointerCapture(e.pointerId); } catch { /* sem captura */ } if (game.manualSwing()) game.setHold(true); });

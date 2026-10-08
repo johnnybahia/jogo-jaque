@@ -67,7 +67,7 @@ export class Game {
   rally = 0; record = loadRecord(); deadTimer = 0; time = 0; serveTime = 0;
   react = 0; reactT = 0; private walkAt = 0.5; private recBeaten = false;   // reação ao fim do ponto (0 nada, 1 suspiro, 2 comemoração), tempo desde o ponto e quando ela começa a voltar ao saque
   swing: Swing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
-  cue: Cue | null = null; cueOut = false; private lastCue: Cue | null = null; marker: CueMarker; aimMark: AimMark; private hitT = 0; private aimV = 0; private aimT = -99; aimPre = 0.12; cancelFollow = true; perfects = 0;   // aimPre: janela (s) antes do aperto em que um empurrão do direcional ainda vale como mira; cancelFollow: empurrar o direcional depois do contato encurta o gesto (os dois ligam por padrão; os testes de comparação com a versão antiga os desligam)
+  cue: Cue | null = null; cueOut = false; private lastCue: Cue | null = null; marker: CueMarker; aimMark: AimMark; private hitT = 0; private aimV = 0; private aimT = -99; aimPre = 0.12; cancelFollow = true; runLead = 0.12; perfects = 0;   // aimPre: janela (s) antes do aperto em que um empurrão do direcional ainda vale como mira; cancelFollow: empurrar o direcional depois do contato encurta o gesto (os dois ligam por padrão; os testes de comparação com a versão antiga os desligam)
   wallFx: WallFx; dust: Dust;
   dancer = new Dancer(); danceWho: Side | null = null; private danced = false; private danceT0 = 0; private lastDance: string | null = null; private camPrev: { yaw: number; pitch: number; dist: number } | null = null; private camUser = -99; private oppPos = new THREE.Vector3();   // dança de vitória: quem dança, se já começou, a última sorteada, câmera de antes e último toque do usuário na câmera
   match: Match | null = null; onScore: (v: ScoreView | null) => void = () => {}; onMatchEnd: (winner: Side, v: ScoreView) => void = () => {}; private matchEnded = false;
@@ -364,6 +364,9 @@ export class Game {
 
   // ---------- tempo e posição ----------
   reachR(): number { return S.assist * (S.auto ? 1.6 : 1); }   // raio em que o golpe ainda leva a jogadora ao ponto certo
+  /** raio do aperto do GOLPE: o de assistência + o que ela ainda corre antes de o golpe começar (`runLead` s de corrida, até +0,4 m a toda velocidade). Apertar andando não pode ser pior que apertar parada:
+   *  com o direcional apertado ela passa do marcador em poucos centésimos e o golpe saía em branco ("Longe!"). Parada, é exatamente `reachR()` */
+  pressReach(): number { return this.reachR() + this.runLead * Math.min(Math.hypot(this.vx, this.vz), MAX_SPEED); }
 
   /** golpe do vídeo se o clipe existe; senão o de mocap de tênis */
   private pick(clip: string, fallback: string): string { return this.rig.contactLocal.has(clip) ? clip : fallback; }
@@ -565,7 +568,7 @@ export class Game {
     const cue = this.cue ?? (this.lastCue && this.time - this.lastCue.press < 0.5 ? this.lastCue : null); if (!cue) { this.whiff(1); return; }   // lastCue: apertou um pouco depois da bola passar da janela
     const dtp = cue.arrival - this.time, err = dtp - cue.prep;                       // err > 0: apertou cedo; < 0: tarde
     const ct = this.rig.ct(cue.clip, S.contactOffset), st = this.rig.startT(cue.clip, S.contactOffset), s = (ct - st) / Math.max(dtp, 1e-3);
-    if (cue.shift > this.reachR() + 1e-3) { this.whiff(err, "Longe!"); return; }
+    if (cue.shift > this.pressReach() + 1e-3) { this.whiff(err, "Longe!"); return; }
     if (s < S_MIN || s > S_MAX) { this.whiff(err); return; }
     this.beginSwing(cue.clip, cue.kind, ct, s, cue.x1, cue.z1, err, false, cue.smp);
   }
@@ -768,7 +771,7 @@ export class Game {
     this.ballMesh.position.set(b.x, b.y, b.z); this.ballShadow.position.set(b.x, 0.012, b.z);
     this.ballShadow.scale.setScalar(Math.max(0.4, 1.2 - b.y * 0.25));
     this.playerShadow.position.set(p.x, 0.01, p.z);
-    const c = this.cue, v = c ? { ttp: c.press - this.time, reach: c.shift <= this.reachR(), win: WIN.good * S.timing, label: this.cueOut ? "Fora! Deixa passar" : strokeOf(c.clip)?.label ?? "", out: this.cueOut } : null;
+    const c = this.cue, v = c ? { ttp: c.press - this.time, reach: c.shift <= this.pressReach(), win: WIN.good * S.timing, label: this.cueOut ? "Fora! Deixa passar" : strokeOf(c.clip)?.label ?? "", out: this.cueOut } : null;
     this.marker.update(c && v ? { x: c.x1, z: c.z1, ...v } : null, this.ballMesh.position); this.onCue(v); this.aimTick(dt);
     if (this.calls.length || this.callsOn) {   // balões de chamada: ficam ~1,1 s, sobem um pouco e somem
       this.calls = this.calls.filter((c) => (c.t += dt) < 1.1);
