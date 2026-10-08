@@ -192,3 +192,7 @@ button,select,input,textarea{font-family:inherit}
 .ce-btns button.main{background:linear-gradient(180deg,#ff8a30,#ff6a00)!important;border-color:#ffb36b!important}
 #calls .call{font:800 15px/1.1 var(--f-display);padding:3px 11px 4px;border-radius:12px;background:rgba(9,30,46,.82);border-width:1.5px}
 #upd{background:var(--glass2);border:1px solid var(--sun);font-family:var(--f-ui)}
+
+/* vinheta barata da qualidade Média (na Alta ela vem da grade do pós-processamento): um gradiente por cima do canvas, abaixo da interface */
+#vig{position:fixed;inset:0;pointer-events:none;display:none;background:radial-gradient(125% 105% at 50% 50%,transparent 58%,rgba(4,14,24,.3) 100%)}
+body.vig #vig{display:block}

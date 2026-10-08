@@ -18,7 +18,7 @@ async function boot(): Promise<void> {
   document.getElementById("loading")!.remove();
   addEventListener("resize", () => game.resize());
   let last = performance.now();
-  const loop = (now: number) => { const dt = (now - last) / 1000; last = now; if (!document.hidden) { if (game.quality.frame(dt)) game.onToast("Qualidade: " + game.quality.label(), "o jogo estava pesado neste aparelho"); game.tick(dt); game.render(); } requestAnimationFrame(loop); };
+  const loop = (now: number) => { const dt = (now - last) / 1000; last = now; if (!document.hidden) { if (game.quality.frame(dt)) game.onToast("Qualidade: " + game.quality.label(), "o jogo estava pesado neste aparelho"); game.tick(dt); game.render(dt); } requestAnimationFrame(loop); };
   requestAnimationFrame(loop);
 }
 boot().catch((e) => { const el = document.getElementById("loading"); if (el) el.textContent = "Erro: " + (e as Error).message; console.error(e); });

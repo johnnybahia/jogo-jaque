@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { addRim } from "./rim";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
@@ -28,7 +29,7 @@ const THUMB = [22, 28, 20];
 function slimMaterial(mt: THREE.Material): THREE.Material {
   const p = mt as THREE.MeshPhysicalMaterial;
   if (!p.isMeshPhysicalMaterial || p.clearcoat || p.sheen || p.transmission || p.iridescence || p.anisotropy || p.dispersion || p.ior !== 1.5 || p.specularIntensity !== 1) return mt;
-  const s = new THREE.MeshStandardMaterial(); THREE.MeshStandardMaterial.prototype.copy.call(s, p); s.name = p.name; p.dispose(); return s;
+  const s = new THREE.MeshStandardMaterial(); THREE.MeshStandardMaterial.prototype.copy.call(s, p); s.name = p.name; p.dispose(); addRim(s); return s;
 }
 
 function fixSkinMaterial(mt: THREE.Material): void {
@@ -117,6 +118,9 @@ export class Rig {
   }
 
   /** 2ª instância (a adversária): copia o modelo com a raquete na mão e usa os mesmos clipes e medidas (contato, picos, locomoção); mixer, pesos e dedos são próprios */
+  /** a atleta (corpo e raquete) projeta sombra do sol? */
+  setCast(on: boolean): void { this.root.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh) m.castShadow = on; }); }
+
   cloneInstance(): Rig {
     const r = new Rig();
     r.meta = this.meta; r.durations = this.durations; r.peak = this.peak; r.presetQ.copy(this.presetQ); r.faceAssist = this.faceAssist; r.grip = this.grip;

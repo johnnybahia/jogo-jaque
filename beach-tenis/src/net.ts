@@ -38,6 +38,7 @@ export class Net {
       const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.06, 14), tape); cap.position.set(x, netH + 0.15, netZ); g.add(cap);
       const base = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.03, 16), steel); base.position.set(x, 0.015, netZ); g.add(base);
     }
+    top.castShadow = true; g.children.forEach((o) => { if (o !== cloth && (o as THREE.Mesh).isMesh) o.castShadow = true; });   // o pano com alpha-to-coverage ficaria uma lâmina maciça na sombra
   }
 
   /** a bola bateu na rede em (x, y) com velocidade de entrada `speed` (m/s): a onda sai dali */

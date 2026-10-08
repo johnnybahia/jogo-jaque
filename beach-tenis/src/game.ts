@@ -8,6 +8,7 @@ import { Footprints } from "./footprints";
 import { Quality } from "./quality";
 import type { Atmosphere } from "./atmosphere";
 import type { Net } from "./net";
+import type { Post } from "./post";
 import { Props } from "./props";
 import { CueMarker } from "./cuemark";
 import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
@@ -84,7 +85,7 @@ export class Game {
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
-  cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
+  shadowsOn = false; private post: Post | null = null; private postWanted = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
   readonly quality = new Quality(); atm!: Atmosphere; net!: Net; props!: Props; private courtMask!: { value: number };   // hora do dia: céu, mar, luz e névoa; rede com pano; adereços da praia
 
   constructor(canvas: HTMLCanvasElement) {
@@ -93,8 +94,8 @@ export class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.courtMask = env.courtMask; const court = buildMatchCourt(this.scene); this.envMatch = court.group; this.net = court.net; this.foot = new Footprints(this.scene);
     const bt = blobTexture(); this.props = new Props(bt); this.scene.add(this.props.group);
-    const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false }); this.shadowMat = bm;
-    this.playerShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), bm); this.playerShadow.rotation.x = -Math.PI / 2; this.playerShadow.position.y = 0.01; this.scene.add(this.playerShadow);
+    const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false }); this.shadowMat = bm.clone();   // manchas: das atletas (esmaecem quando há sombra do sol) e da bola
+    this.playerShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), this.shadowMat); this.playerShadow.rotation.x = -Math.PI / 2; this.playerShadow.position.y = 0.01; this.scene.add(this.playerShadow);
     this.ballShadow = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), bm); this.ballShadow.rotation.x = -Math.PI / 2; this.ballShadow.position.y = 0.012; this.scene.add(this.ballShadow);
     this.ballMesh = new THREE.Group(); this.ballMesh.add(new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 20, 14), new THREE.MeshStandardMaterial({ color: 0xd8f23a, emissive: 0x6a7a10, roughness: 0.7 }))); this.scene.add(this.ballMesh);
     this.ballMesh.visible = false; this.ballShadow.visible = false;
@@ -115,7 +116,7 @@ export class Game {
     this.applySettings();
     this.fx = new PoseFX(this.rig); this.foot.bind(this.rig.model); this.animate(0); this.rig.root.updateMatrixWorld(true); this.foot.calibrate();
     this.looks = await loadLooks(base);   // visuais das outras atletas (a adversária do single é a Bia: rosa e roxo)
-    this.opp = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Bia", look: this.looks.get("bia") }); this.opp.walker = this.foot.track(this.opp.rig.model);
+    this.opp = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Bia", look: this.looks.get("bia") }); this.opp.walker = this.foot.track(this.opp.rig.model); this.opp.rig.setCast(this.shadowsOn);
     this.setCamera(true); if (this.pendingCover) this.coverOn(true);
   }
 
@@ -140,8 +141,8 @@ export class Game {
   aiBodies(): Opponent[] { return (this.doubles ? [this.partner, this.opp, this.opp2] : [this.opp]).filter((o): o is Opponent => !!o); }
   /** cria a parceira e a 2ª adversária na primeira vez que se joga em duplas */
   private ensureDoubles(): void {
-    if (!this.partner) { this.partner = new Opponent(this.rig, this.scene, this.shadowMat, { dir: 1, name: "Lari", look: this.looks.get("lari") }); this.partner.walker = this.foot.track(this.partner.rig.model); }
-    if (!this.opp2) { this.opp2 = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Duda", look: this.looks.get("duda") }); this.opp2.walker = this.foot.track(this.opp2.rig.model); }
+    if (!this.partner) { this.partner = new Opponent(this.rig, this.scene, this.shadowMat, { dir: 1, name: "Lari", look: this.looks.get("lari") }); this.partner.walker = this.foot.track(this.partner.rig.model); this.partner.rig.setCast(this.shadowsOn); }
+    if (!this.opp2) { this.opp2 = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Duda", look: this.looks.get("duda") }); this.opp2.walker = this.foot.track(this.opp2.rig.model); this.opp2.rig.setCast(this.shadowsOn); }
   }
 
   /** começa uma partida (formato e nível das adversárias; "single" 1×1 ou "duplas" 2×2 com a parceira IA no nível difícil); quem saca primeiro é a jogadora */
@@ -238,12 +239,23 @@ export class Game {
   applyQuality(): void {
     this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio)); this.resize();
     this.atm.clouds = this.quality.tier !== "baixa"; this.atm.waves = this.quality.tier === "baixa" ? 0.5 : 1; this.props.setTier(this.quality.tier);
+    // sombra do sol: Média 1024, Alta 2048; Baixa só as manchas
+    const on = this.quality.tier !== "baixa", size = this.quality.tier === "alta" ? 2048 : 1024, sun = this.atm.sun;
+    this.shadowsOn = on; if (sun.castShadow !== on) sun.castShadow = on;
+    if (sun.shadow.mapSize.x !== size) { sun.shadow.mapSize.set(size, size); sun.shadow.map?.dispose(); sun.shadow.map = null; }
+    (this.shadowMat as THREE.MeshBasicMaterial).opacity = on ? 0.4 : 1;   // com sombra de verdade a mancha só ancora os pés
+    for (const r of [this.rig, ...[this.opp, this.partner, this.opp2].map((o) => o?.rig)]) r?.setCast(on);
+    // pós-processamento (bloom + grade) só na Alta e se o aparelho renderiza em meio-float; o código vem sob demanda
+    this.postWanted = this.quality.tier === "alta" && (this.renderer.extensions.has("EXT_color_buffer_float") || this.renderer.extensions.has("EXT_color_buffer_half_float"));
+    if (this.postWanted && !this.post) void import("./post").then(({ Post: P }) => { if (this.postWanted && !this.post) { this.post = new P(this.renderer, this.scene, this.camera, window.innerWidth, window.innerHeight, this.renderer.getPixelRatio()); } });
+    if (!this.postWanted && this.post) { this.post.dispose(); this.post = null; }
+    document.body.classList.toggle("vig", this.quality.tier === "media" || (this.quality.tier === "alta" && !this.postWanted));
   }
 
   resize(): void {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false); this.camera.aspect = w / h;
-    this.camera.fov = w / h < 0.8 ? 68 : 55; this.camera.updateProjectionMatrix();
+    this.camera.fov = w / h < 0.8 ? 68 : 55; this.camera.updateProjectionMatrix(); this.post?.setSize(w, h, this.renderer.getPixelRatio());
   }
 
   emit(type: string, extra: Record<string, unknown> = {}): void {
@@ -632,7 +644,7 @@ export class Game {
     if (this.mode === "match") for (const o of this.aiBodies()) if (o.walker > 0) fsp[o.walker] = o.speed;
     this.foot.update(dt, fsp);
     this.syncVisuals(dt);
-    this.atm.setTarget(this.cover ? 0.8 : S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera.position); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
+    this.atm.setTarget(this.cover ? 0.8 : S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
   }
 
   private animate(dt: number): void {
@@ -703,6 +715,6 @@ export class Game {
     this.camera.lookAt(bx + sy * lead, ty, p.z + cy * lead);
   }
 
-  render(): void { this.renderer.render(this.scene, this.camera); }
+  render(dt = 0.016): void { if (this.post) { this.post.update(this.atm.t); this.post.render(dt); } else this.renderer.render(this.scene, this.camera); }
   advanceSeconds(sec: number): void { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) this.tick(1 / 60); }
 }

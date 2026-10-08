@@ -18,6 +18,9 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
   const fog = new THREE.Fog(0xcfe8f5, 30, 190); scene.fog = fog;
   const hemi = new THREE.HemisphereLight(0xffffff, 0xe0c890, 1.25); scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff2d6, 1.9); scene.add(sun, sun.target);
+  // sombras do sol só em volta da quadra (Média/Alta; a Baixa fica com as manchas): caixa ortográfica 20 m de largura × 30 m na altura da luz (no sol baixo cobre bem mais chão ao longo da luz)
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const sc = sun.shadow.camera; sc.left = -10; sc.right = 10; sc.top = 15; sc.bottom = -15; sc.near = 1; sc.far = 170; sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03; sun.target.position.set(0, 0, MATCH.netZ);
   const fill = new THREE.DirectionalLight(0xdce9ff, 0.5); fill.position.set(2, 10, -16); scene.add(fill, fill.target);   // vem de trás da câmera: o rosto da jogadora não fica só em contraluz
 
   const noise = makeNoiseTexture(); const sky = buildSky(noise, true); scene.add(sky.mesh);
@@ -47,7 +50,7 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
         diffuseColor.rgb *= 1.0 + court * (0.05 + 0.05 * (rake - 0.5));`)
       .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n roughnessFactor *= mix(1.0, 0.6, wet);");
   };
-  const floor = new THREE.Mesh(buildSandGeometry(), sandMat); scene.add(floor);
+  const floor = new THREE.Mesh(buildSandGeometry(), sandMat); floor.receiveShadow = true; scene.add(floor);
   // texturas PBR de areia (Poly Haven "aerial_beach_01", CC0) — opcionais: se faltarem, fica a procedural
   const tl = new THREE.TextureLoader(); const rep = (t: THREE.Texture, srgb: boolean) => { if (srgb) t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8; return t; };
   // carrega direto (GET passa pelo service worker, então funciona offline); se a base falhar, fica a procedural
