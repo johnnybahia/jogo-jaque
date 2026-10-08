@@ -107,3 +107,4 @@ body.menu #calls,body.camedit #calls{display:none}
 /* celular deitado: título à esquerda, controles à direita (cabe sem rolar) */
 @media (max-height:520px) and (min-width:560px){#cover{padding:10px 16px}.cv-card{width:min(800px,100%);flex-direction:row;gap:26px}.cv-head{flex:0 0 34%;width:auto;gap:6px}.cv-logo{width:min(34vh,120px)}.cv-body{flex:1;min-width:0;gap:6px}.cv-row select{padding:7px 8px}.cv-card #cvCams button{padding:5px 2px}.cv-card button#cvCamEdit{padding:5px 12px}.cv-row2 button{padding:9px 6px}.cv-hint{font-size:11px;margin:0}.cv-foot{margin:0}.cv-card button.cv-main{padding:9px}}
 @media (max-width:400px) and (min-height:521px){.cv-card h1{font-size:26px}.cv-logo{width:min(22vh,124px)}.cv-card{gap:8px}}
+#panel select{margin-left:8px;padding:6px 8px;border-radius:8px;border:0;background:#ffffff1f;color:#fff;font-size:13px;font-weight:700}#panel select option{color:#000}#panel .qnow{display:block;opacity:.65;margin-top:2px}
