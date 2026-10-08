@@ -14,9 +14,9 @@ import { WallFx } from "./wallfx";
 import { Dust } from "./dust";
 import { Opponent } from "./opponent";
 import { loadLooks } from "./looks";
-import { Dancer, pickDance } from "./dance";
+import { Dancer, DANCES, pickDance } from "./dance";
 import { CAMS, CAM_NAMES, CamPose, cleanPose } from "./camera";
-import { Match, LEVELS, ScoreView, inCourt } from "./match";
+import { Match, LEVELS, ScoreView, inCourt, CELEB_AT } from "./match";
 import { FORMATS, PointResult, Side } from "./rules";
 import { Ball, BALL_R, G, Sample, Tun, heightAtWall, newBall, predict, solveShot, stepBall } from "./physics";
 
@@ -37,7 +37,6 @@ interface Viewer { clip: string; speed: number; paused: boolean; wait: number; p
 // tempo (s) do começo do golpe ao contato vem de PREP (rig.ts); a bola chega PREP depois do aperto ideal. O clipe é acelerado/retardado
 // (S_MIN..S_MAX) para o contato cair na bola quando o aperto vem um pouco cedo/tarde; fora disso o golpe passa em branco
 export const S_MIN = 0.62, S_MAX = 1.9, DY_MAX = 0.2, NEED_MAX = 2.7, NEED_OK = 1.7, NEED_RELAX = 2.3;   // NEED: corrida (m/s) exigida para chegar ao ponto a tempo
-const DANCE_AT = 1.0;   // s depois do último ponto da partida em que o vencedor começa a dançar
 const HOME = { x: 0, z: 0 }, WALK_HOME = 2.0;   // posição de saque (atrás da linha de fundo, no centro) e velocidade com que ela volta andando depois do ponto (m/s)
 const WIN = { perfect: 0.07, good: 0.16 };   // erro de tempo (s) × Ajustes › janela
 export interface LogEntry { t: number; type: string; [k: string]: unknown; }
@@ -57,9 +56,11 @@ export class Game {
   swing: Swing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
   cue: Cue | null = null; cueOut = false; private lastCue: Cue | null = null; marker: CueMarker; perfects = 0;
   wallFx: WallFx; dust: Dust;
-  dancer = new Dancer(); danceWho: Side | null = null; private danced = false; private lastDance: string | null = null; private camPrev: { yaw: number; pitch: number; dist: number } | null = null; private camUser = -99; private oppPos = new THREE.Vector3();   // dança de vitória: quem dança, se já começou, a última sorteada, câmera de antes e último toque do usuário na câmera
+  dancer = new Dancer(); danceWho: Side | null = null; private danced = false; private danceT0 = 0; private lastDance: string | null = null; private camPrev: { yaw: number; pitch: number; dist: number } | null = null; private camUser = -99; private oppPos = new THREE.Vector3();   // dança de vitória: quem dança, se já começou, a última sorteada, câmera de antes e último toque do usuário na câmera
   match: Match | null = null; onScore: (v: ScoreView | null) => void = () => {}; onMatchEnd: (winner: Side, v: ScoreView) => void = () => {}; private matchEnded = false;
-  looks = new Map<string, THREE.Texture>(); mode: "train" | "match" = "train"; opp: Opponent | null = null; private envTrain: THREE.Group; private envMatch: THREE.Group; private shadowMat: THREE.Material;   // treino na parede ou partida contra a adversária
+  looks = new Map<string, THREE.Texture>(); mode: "train" | "match" = "train"; doubles = false;   // visuais das outras atletas; single (1×1) ou duplas (2×2)
+  opp: Opponent | null = null; partner: Opponent | null = null; opp2: Opponent | null = null;   // a adversária (a Bia, única no single), a parceira da jogadora (Lari) e a 2ª adversária das duplas (Duda)
+  private envTrain: THREE.Group; private envMatch: THREE.Group; private shadowMat: THREE.Material;   // treino na parede ou partida contra as adversárias
   fx: PoseFX | null = null; private fxBall = new THREE.Vector3();   // vida do personagem: olhar na bola, respiração, inclinação
   stamina = new Stamina(); private tired = false; private staSent = -1;   // fôlego: gasta correndo; sem fôlego a corrida fica mais lenta
   onStamina: (v: number, mul: number) => void = () => {};
@@ -71,6 +72,11 @@ export class Game {
   onToast: (m: string, sub?: string) => void = () => {};
   onHud: () => void = () => {};
   onCue: (v: CueView | null) => void = () => {};
+  /** balões de chamada ("Minha!", "Sua!", "Fora!") sobre a cabeça de quem fala (duplas); a tela desenha os que estão no ar: posição em % da tela, idade e dupla */
+  private calls: { text: string; who: Opponent | null; t: number; team: number }[] = []; private callsOn = false; private callV = new THREE.Vector3();
+  onCalls: (c: { text: string; x: number; y: number; team: number; a: number }[]) => void = () => {};
+  /** `who` (null = a jogadora) chama `text` por ~1 s; só uma chamada por pessoa de cada vez */
+  call(text: string, who: Opponent | null, team: number): void { this.calls = this.calls.filter((c) => c.who !== who); this.calls.push({ text, who, t: 0, team }); }
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3();
@@ -103,15 +109,16 @@ export class Game {
     this.applySettings();
     this.fx = new PoseFX(this.rig); this.foot.bind(this.rig.model); this.animate(0); this.rig.root.updateMatrixWorld(true); this.foot.calibrate();
     this.looks = await loadLooks(base);   // visuais das outras atletas (a adversária do single é a Bia: rosa e roxo)
-    this.opp = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Adversária", look: this.looks.get("bia") });
+    this.opp = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Bia", look: this.looks.get("bia") });
     this.setCamera(true);
   }
 
   /** treino na parede ou partida contra a adversária: troca cenário, física (parede × rede) e posições */
   setMode(mode: "train" | "match"): void {
-    this.mode = mode; this.viewClose(); this.intent = null; this.stopDance();
+    this.mode = mode; this.viewClose(); this.intent = null; this.stopDance(); this.calls = [];
     const m = mode === "match"; if (!m) { this.match = null; this.onScore(null); }
-    this.envTrain.visible = !m; this.envMatch.visible = m; this.opp?.setVisible(m);
+    if (!m) this.doubles = false;
+    this.envTrain.visible = !m; this.envMatch.visible = m; this.opp?.setVisible(m); this.partner?.setVisible(m && this.doubles); this.opp2?.setVisible(m && this.doubles);
     Object.assign(this.tun, m ? { wallZ: 99, net: { z: MATCH.netZ, h: NET_H, w: 2 * MATCH.halfW + 0.6 } } : { wallZ: COURT.wallZ, net: undefined });
     this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false;
     this.rig.root.position.set(0, 0, 0); this.vx = this.vz = 0; this.foot.clear();
@@ -120,38 +127,68 @@ export class Game {
   }
 
   /** onde ela espera o ponto: no treino, o centro atrás da linha de fundo; na partida, depende de quem saca */
-  homePos(): { x: number; z: number } { return this.match ? { x: 0, z: this.match.homeZ(0) } : HOME; }
+  homePos(): { x: number; z: number } { return this.match ? this.match.homeOfHuman() : HOME; }
 
-  /** começa uma partida contra a adversária (formato e nível); quem saca primeiro é a jogadora */
-  startMatch(fmtId = "rapida", lvlId = "medio"): void {
+  /** as atletas controladas pelo computador que estão em quadra: a adversária (single) ou a parceira e as duas adversárias (duplas) */
+  aiBodies(): Opponent[] { return (this.doubles ? [this.partner, this.opp, this.opp2] : [this.opp]).filter((o): o is Opponent => !!o); }
+  /** cria a parceira e a 2ª adversária na primeira vez que se joga em duplas */
+  private ensureDoubles(): void {
+    if (!this.partner) this.partner = new Opponent(this.rig, this.scene, this.shadowMat, { dir: 1, name: "Lari", look: this.looks.get("lari") });
+    if (!this.opp2) this.opp2 = new Opponent(this.rig, this.scene, this.shadowMat, { dir: -1, name: "Duda", look: this.looks.get("duda") });
+  }
+
+  /** começa uma partida (formato e nível das adversárias; "single" 1×1 ou "duplas" 2×2 com a parceira IA no nível difícil); quem saca primeiro é a jogadora */
+  startMatch(fmtId = "rapida", lvlId = "medio", mode: "single" | "duplas" = "single"): void {
     if (!this.opp) return;
+    this.doubles = mode === "duplas"; if (this.doubles) this.ensureDoubles();
     this.setMode("match"); this.matchEnded = false; this.danced = false;
-    this.match = new Match(this, this.opp, FORMATS[fmtId] ?? FORMATS.rapida, LEVELS[lvlId] ?? LEVELS.medio, 0);
-    this.stamina.reset(); this.opp.stamina.reset(); this.onScore(this.match.view());
+    this.match = new Match(this, { partner: this.doubles ? this.partner : null, foes: this.doubles && this.opp2 ? [this.opp, this.opp2] : [this.opp] }, FORMATS[fmtId] ?? FORMATS.rapida, LEVELS[lvlId] ?? LEVELS.medio, 0);
+    this.stamina.reset(); for (const o of this.aiBodies()) o.stamina.reset();
+    if (this.doubles) { this.match.placeAll(); const h = this.match.homeOfHuman(); this.rig.root.position.set(h.x, 0, h.z); }   // duplas: cada uma no seu lugar de saque
+    this.onScore(this.match.view());
     this.nextPoint(); this.onHud();
   }
   endMatch(): void { this.setMode("train"); }
 
-  /** fim da partida: quem venceu dança uma dança inteira, sorteada entre as do pacote (samba ou gangnam, sem repetir a última); a câmera vai para a frente dela e dá uma volta lenta */
+  /** quem dança quando o time `team` vence: a jogadora (e a parceira, nas duplas) ou as adversárias */
+  private dancersOf(team: Side): { rig: Rig; dancer: Dancer; body: Opponent | null }[] {
+    if (team === 0) return [{ rig: this.rig, dancer: this.dancer, body: null }, ...(this.doubles && this.partner ? [{ rig: this.partner.rig, dancer: this.partner.dancer, body: this.partner }] : [])];
+    return [this.opp, ...(this.doubles ? [this.opp2] : [])].filter((o): o is Opponent => !!o).map((o) => ({ rig: o.rig, dancer: o.dancer, body: o }));
+  }
+
+  /** fim da partida: quem venceu dança uma dança inteira, sorteada entre as do pacote (samba ou gangnam, sem repetir a última; nas duplas, uma dança diferente para cada uma); a câmera vai para a frente delas e dá uma volta lenta */
   startDance(winner: Side, clip?: string): boolean {
-    const R = winner === 0 ? this.rig : this.opp?.rig; if (!R) return false;
-    const c = clip ?? pickDance(R, this.lastDance); if (!c) return false;
-    const ok = winner === 0 ? this.dancer.start(R, c) : !!this.opp?.dancer.start(R, c); if (!ok) return false;
-    this.danceWho = winner; this.lastDance = c; this.react = 0; this.swing = null; this.vx = this.vz = 0; if (this.opp) { this.opp.react = 0; this.opp.vx = this.opp.vz = 0; }
-    this.camPrev = { ...this.cam }; this.camUser = -99; this.emit("dance", { winner, clip: c });
+    const team = this.dancersOf(winner); if (!team.length) return false;
+    const first = clip ?? pickDance(team[0].rig, this.lastDance); if (!first) return false;
+    let any = false;
+    team.forEach((m, i) => {
+      const c = i === 0 || clip ? first : DANCES.find((x) => x !== first && m.rig.actions.has(x)) ?? first;
+      if (m.dancer.start(m.rig, c)) { any = true; if (m.body) { m.body.react = 0; m.body.vx = m.body.vz = 0; } }
+    });
+    if (!any) return false;
+    this.danceWho = winner; this.lastDance = first; this.react = 0; this.swing = null; this.vx = this.vz = 0;
+    this.camPrev = { ...this.cam }; this.camUser = -99; this.emit("dance", { winner, clip: first, n: team.length });
     return true;
   }
 
   stopDance(): void {
-    this.dancer.stop(); this.opp?.dancer.stop(); this.danceWho = null;
+    this.dancer.stop(); for (const o of [this.opp, this.partner, this.opp2]) o?.dancer.stop(); this.danceWho = null;
     if (this.camPrev) { Object.assign(this.cam, this.camPrev); this.camPrev = null; }
   }
 
-  /** câmera da dança: vai para a frente de quem dança (a jogadora olha para +z, a adversária para −z), mais perto e baixa, com uma volta lenta; some enquanto o usuário mexe na câmera */
+  /** o centro de quem dança (a câmera da dança olha para ele) */
+  private danceFocus(out: THREE.Vector3): THREE.Vector3 {
+    const t = this.dancersOf(this.danceWho ?? 0); let x = 0, z = 0;
+    for (const m of t) { const p = m.body ? m.body : this.rig.root.position; x += p.x; z += p.z; }
+    return out.set(x / Math.max(1, t.length), 0, z / Math.max(1, t.length));
+  }
+
+  /** câmera da dança: vai para a frente de quem dança (a jogadora e a parceira olham para +z, as adversárias para −z), mais perto e baixa (mais longe nas duplas), com uma volta lenta; some enquanto o usuário mexe na câmera */
   private danceCam(dt: number): void {
-    const who = this.danceWho, D = who === 1 ? this.opp?.dancer : this.dancer; if (who === null || !D?.active || this.time - this.camUser < 4) return;
+    const who = this.danceWho; if (who === null || this.time - this.camUser < 4) return;
+    const D = this.dancersOf(who).map((m) => m.dancer).find((d) => d.active); if (!D) return;
     const k = Math.min(1, 1.6 * dt), want = (who === 0 ? Math.PI : 0) + 0.8 * Math.sin(0.4 * D.t), d = ((want - this.cam.yaw + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
-    this.cam.yaw += THREE.MathUtils.clamp(d * k, -1.2 * dt, 1.2 * dt); this.cam.pitch += (0.2 - this.cam.pitch) * k; this.cam.dist += (3.7 - this.cam.dist) * k;   // a volta até a frente dela é de no máximo 1,2 rad/s
+    this.cam.yaw += THREE.MathUtils.clamp(d * k, -1.2 * dt, 1.2 * dt); this.cam.pitch += (0.2 - this.cam.pitch) * k; this.cam.dist += ((this.doubles ? 5.6 : 3.7) - this.cam.dist) * k;   // a volta até a frente delas é de no máximo 1,2 rad/s
   }
 
   /** próximo ponto da partida: quem saca é decidido pelo placar (a adversária saca sozinha; a jogadora, pelo botão ou no automático) */
@@ -159,7 +196,7 @@ export class Game {
     const m = this.match; if (!m) return;
     this.state = "wait"; this.react = 0; this.ballMesh.visible = false; this.ballShadow.visible = false; this.cue = null; this.lastCue = null; this.onScore(m.view());
     if (m.over !== null) return;
-    if (m.score.server === 0) { if (S.autoServe) this.serve(); } else m.startServe();
+    const sv = m.currentServer(); if (!sv) { if (S.autoServe) this.serve(); } else m.startServe(sv);   // a IA que saca (adversária ou parceira) saca sozinha
   }
 
   /** fim do ponto na partida: placar, reações e volta aos lugares */
@@ -168,7 +205,7 @@ export class Game {
     if (this.swing && !this.swing.contacted) this.swing = null;
     this.state = "dead"; this.ball.ret = null;
     this.react = r.match !== undefined ? (winner === 0 ? 0 : 1) : winner === 0 ? (this.rally >= 8 || r.game !== undefined ? 2 : 0) : this.rally < 3 ? 1 : 0; this.reactT = 0; this.deadTimer = [1.6, 1.9, 2.6][this.react]; this.walkAt = [0.7, 1.1, 1.9][this.react];   // fim da partida: quem perde suspira e quem ganha dança
-    this.stamina.restore(0.25); this.opp?.stamina.restore(0.25);
+    this.stamina.restore(0.25); for (const o of this.aiBodies()) o.stamina.restore(0.25);
     const v = m.view(), pts = `${v.points[0]} – ${v.points[1]}`;
     this.onToast(`${winner === 0 ? "Ponto!" : "Ponto da adversária"} — ${reason}`, r.match !== undefined ? "Fim da partida" : r.set !== undefined ? "Set!" : r.game !== undefined ? `Game ${v.games[0]}–${v.games[1]}` : `${pts} · rali ${this.rally}`);
     this.emit("point", { winner, reason, rally: this.rally, games: v.games, points: v.points }); this.onScore(v); this.onHud();
@@ -197,7 +234,7 @@ export class Game {
     const p = r.root.position, dur = r.durations.get(clip) ?? 2, ct = r.ct(clip, S.contactOffset), h = r.measureObj(clip, TOSS_REL, r.leftHand);
     this.swing = { clip, s: S.timeScale, contactT: ct, t: SERVE_START, startT: SERVE_START, endT: Math.min(dur - 0.02, ct + SERVE_FOLLOW), duration: dur, x0: p.x, z0: p.z, x1: p.x, z1: p.z, contacted: false, kind: "serve", err: 0, whiff: false,
       toss: { rel: TOSS_REL, apex: tossApex((ct - TOSS_REL) / S.timeScale), hx: p.x + h.x, hy: h.y, hz: p.z + h.z, cx: p.x + cl.x, cy: cl.y, cz: p.z + cl.z } };
-    if (this.match) this.match.serveBy = 0;
+    if (this.match) { this.match.serveAi = null; this.match.humanOwns = true; }
     this.swingAct = act; this.vx = 0; this.vz = 0; this.cue = null; this.lastCue = null; this.state = "serve"; this.rally = 0; this.react = 0; this.recBeaten = false; this.foot.clear();
     Object.assign(this.ball, newBall(), { x: p.x, y: 1.5, z: p.z });
     this.ballMesh.visible = true; this.ballShadow.visible = true; this.info = ""; this.emit("serve", { animated: true }); this.onHud(); return true;
@@ -216,7 +253,7 @@ export class Game {
 
   serve(): void {
     if (!this.rig.mixer || this.camEdit) return;
-    if (this.match && (this.match.score.server !== 0 || this.match.over !== null)) return;   // na partida a adversária saca no turno dela
+    if (this.match && (this.match.currentServer() !== null || this.match.over !== null)) return;   // na partida a IA saca no turno dela
     this.viewClose();
     if (this.swing && !this.swing.contacted) this.swing = null;
     if (this.serveStart()) return;
@@ -344,6 +381,7 @@ export class Game {
    *  mantém o marcador onde estava enquanto ainda dá para chegar e, se nada der, mostra o mais próximo mesmo assim (fica vermelho) */
   private computeCue(): void {
     this.cue = null; if (this.state !== "rally" || (this.swing && !this.swing.contacted)) return;
+    if (this.match?.doubles && this.match.lastHitter === 1 && !this.match.humanOwns) { this.cueOut = false; return; }   // duplas: a bola é da parceira (ela chama "Minha!"): a jogadora deixa e não tem aviso
     const p = this.rig.root.position, prev = this.lastCue, lock = this.lockLeft(), last = this.recent[this.recent.length - 1];
     let best: Cue | null = null, keep: Cue | null = null, near: Cue | null = null; const needMax = NEED_MAX * (0.5 + 0.5 * this.speedMul());
     let lastS: Sample | null = null;
@@ -482,13 +520,13 @@ export class Game {
 
   private advance(dt: number): void {
     const sim = (d: number) => { let r = d; while (r > 1e-6) { const h = Math.min(r, 1 / 120); this.handleEvent(stepBall(this.ball, h, this.tun)); r -= h; } };
-    const step = (d: number) => { sim(d); if (this.swing) this.swing.t += d * this.swing.s; const o = this.match?.opp.swing; if (o) o.t += d * o.s; };
+    const step = (d: number) => { sim(d); if (this.swing) this.swing.t += d * this.swing.s; this.match?.advanceSwings(d); };
     let rem = dt;
     for (let n = 0; n < 4; n++) {   // contatos (da jogadora e da adversária) no instante exato: a bola anda até lá, bate e continua
-      const sw = this.swing, m = this.match, tp = sw && !sw.contacted ? Math.max(0, (sw.contactT - sw.t) / sw.s) : Infinity, to = m ? m.timeToContact() : Infinity, next = Math.min(tp, to);
+      const sw = this.swing, m = this.match, tp = sw && !sw.contacted ? Math.max(0, (sw.contactT - sw.t) / sw.s) : Infinity, nc = m ? m.nextContact() : null, to = nc ? nc.t : Infinity, next = Math.min(tp, to);
       if (!(next <= rem)) break;
       step(next); rem -= next;
-      if (tp <= to) { sw!.t = sw!.contactT; sw!.contacted = true; this.doContact(sw!); } else { const o = m!.opp.swing!; o.t = o.contactT; o.contacted = true; m!.contact(o); }
+      if (tp <= to) { sw!.t = sw!.contactT; sw!.contacted = true; this.doContact(sw!); } else { const o = nc!.a.o.swing!; o.t = o.contactT; o.contacted = true; m!.contact(nc!.a, o); }
       if (this.state !== "rally") return;
     }
     step(rem);
@@ -515,9 +553,9 @@ export class Game {
     if (this.state === "dead") {
       this.deadTimer -= dt; this.reactT += dt;
       if (this.match) {   // partida: as duas voltam aos lugares e o ponto seguinte começa (ou acaba a partida)
-        if (this.match.over !== null) {   // fim da partida: 1 s depois do último ponto o vencedor começa a dançar; 1,5 s depois aparece o cartão (a dança segue até o fim, ou até o usuário escolher)
-          if (!this.danced && this.reactT >= DANCE_AT) { this.danced = true; this.startDance(this.match.over); }
-          if (this.reactT >= DANCE_AT + 1.5 && !this.matchEnded) { this.matchEnded = true; this.onMatchEnd(this.match.over, this.match.view()); }
+        if (this.match.over !== null) {   // fim da partida: as vencedoras vão ao ponto de comemoração (longe da rede) e dançam a dança inteira; 1,5 s depois do começo aparece o cartão (a dança segue até o fim, ou até o usuário escolher)
+          if (!this.danced && this.reactT >= CELEB_AT + 0.4 && (this.match.celebrationReady() || this.reactT >= 5)) { this.danced = true; this.danceT0 = this.reactT; this.startDance(this.match.over); }
+          if (!this.matchEnded && (this.danced ? this.reactT >= this.danceT0 + 1.5 : this.reactT >= 6.5)) { this.matchEnded = true; this.onMatchEnd(this.match.over, this.match.view()); }
         }
         else if (this.deadTimer <= 0 && ((Math.hypot(p.x - this.homePos().x, p.z - this.homePos().z) < 0.3 || !S.autoServe) && this.match.atHome() || this.reactT > 6)) this.nextPoint();
       } else if (this.deadTimer <= 0 && (!S.autoServe || Math.hypot(p.x - HOME.x, p.z - HOME.z) < 0.25 || this.reactT > 5)) { this.state = "wait"; this.react = 0; if (S.autoServe) this.serve(); }   // saque automático: só depois de voltar à posição de saque
@@ -530,7 +568,10 @@ export class Game {
       if (this.state === "dead" && S.autoServe && this.reactT > this.walkAt && Math.hypot(this.input.right, this.input.fwd) < 0.2) {   // depois do ponto volta andando à posição de saque
         const hm = this.homePos(), dx = hm.x - p.x, dz = hm.z - p.z, d = Math.hypot(dx, dz), sp = Math.min(WALK_HOME * sm, d * 2.5); tx = d > 0.04 ? dx / d * sp : 0; tz = d > 0.04 ? dz / d * sp : 0;
       }
-      if (this.match && this.match.over !== null) tx = tz = 0;   // partida acabada: ninguém volta ao saque (quem ganha dança onde está)
+      if (this.match && this.match.over !== null) {   // partida acabada: ninguém volta ao saque; se a jogadora venceu, vai andando ao ponto de comemoração, longe da rede, e dança
+        tx = tz = 0;
+        if (this.match.over === 0 && !this.dancer.active && this.reactT > CELEB_AT) { const sp = this.match.celebrationSpot(0, 0), dx = sp.x - p.x, dz = sp.z - p.z, d = Math.hypot(dx, dz); if (d > 0.1) { const v = Math.min(WALK_HOME * sm, d * 2.5); tx = dx / d * v; tz = dz / d * v; } }
+      }
       this.vx += (tx - this.vx) * k; this.vz += (tz - this.vz) * k;
       p.x = THREE.MathUtils.clamp(p.x + this.vx * dt, -4.6, 4.6); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, -5, this.match ? MATCH.netZ - 0.7 : 6.5);
     }
@@ -550,7 +591,7 @@ export class Game {
         this.computeCue();
         if (S.auto && !this.swing && this.cue && !this.cueOut && this.time >= this.cue.press && this.cue.shift <= this.reachR()) this.manualSwing();   // modo fácil: o jogo aperta na hora
       } else this.cue = null;
-    } else if (this.state === "serve") { if (!(this.match && this.match.serveBy === 1)) this.serveStep(dt); else this.cue = null; }
+    } else if (this.state === "serve") { if (!(this.match && this.match.serveAi)) this.serveStep(dt); else this.cue = null; }
     else { this.cue = null; if (this.swing) this.swing.t += dt * this.swing.s; if (this.state === "dead") for (let r = dt; r > 1e-6; r -= 1 / 120) stepBall(this.ball, Math.min(r, 1 / 120), this.tun); }   // depois do ponto a bola ainda quica e rola
 
     const sw = this.swing;
@@ -560,7 +601,7 @@ export class Game {
       if (sw.t >= sw.endT) { this.swing = null; if (this.viewer) this.viewer.wait = 0.7; }
     } else if (this.viewer) { this.viewer.wait -= dt; if (this.viewer.wait <= 0) this.startView(); }   // galeria: repete o golpe depois de uma pausa
     this.wallFx.update(dt); this.dust.update(dt); this.animate(dt); this.danceCam(dt);
-    if (this.mode === "match" && this.opp) this.opp.animate(dt, this.time, (this.state === "rally" || this.state === "serve") && this.ballMesh.visible ? this.ball : null);
+    if (this.mode === "match") { const live = (this.state === "rally" || this.state === "serve") && this.ballMesh.visible ? this.ball : null; for (const o of this.aiBodies()) o.animate(dt, this.time, live); }
     this.rig.root.updateMatrixWorld(true);
     this.foot.enabled = S.footprints; this.foot.life = S.footLife; this.foot.update(dt, this.swing ? 0 : Math.hypot(this.vx, this.vz));
     this.syncVisuals(dt);
@@ -610,12 +651,21 @@ export class Game {
     this.playerShadow.position.set(p.x, 0.01, p.z);
     const c = this.cue, v = c ? { ttp: c.press - this.time, reach: c.shift <= this.reachR(), win: WIN.good * S.timing, label: this.cueOut ? "Fora! Deixa passar" : strokeOf(c.clip)?.label ?? "", out: this.cueOut } : null;
     this.marker.update(c && v ? { x: c.x1, z: c.z1, ...v } : null, this.ballMesh.position); this.onCue(v);
+    if (this.calls.length || this.callsOn) {   // balões de chamada: ficam ~1,1 s, sobem um pouco e somem
+      this.calls = this.calls.filter((c) => (c.t += dt) < 1.1);
+      const out: { text: string; x: number; y: number; team: number; a: number }[] = [];
+      for (const c of this.calls) {
+        const q = c.who ? this.callV.set(c.who.x, 1.95 + 0.25 * c.t, c.who.z) : this.callV.set(p.x, 1.95 + 0.25 * c.t, p.z); q.project(this.camera);
+        if (q.z < 1) out.push({ text: c.text, x: (q.x * 0.5 + 0.5) * 100, y: (-q.y * 0.5 + 0.5) * 100, team: c.team, a: Math.min(1, c.t / 0.12, (1.1 - c.t) / 0.25) });
+      }
+      this.callsOn = out.length > 0; this.onCalls(out);
+    }
     const sta = this.stamina.value; if (Math.abs(sta - this.staSent) > 0.004) { this.staSent = sta; this.onStamina(sta, this.stamina.mul()); }
     this.setCamera(false, dt);
   }
 
   private setCamera(snap: boolean, dt = 0.016): void {
-    const dn = this.danceWho !== null, p = dn && this.danceWho === 1 && this.opp ? this.oppPos.set(this.opp.x, 0, this.opp.z) : this.rig.root.position, { yaw, pitch, dist } = this.cam; const k = snap ? 1 : Math.min(1, 8 * dt);
+    const dn = this.danceWho !== null, p = dn ? this.danceFocus(this.oppPos) : this.rig.root.position, { yaw, pitch, dist } = this.cam; const k = snap ? 1 : Math.min(1, 8 * dt);
     const sy = Math.sin(yaw), cy = Math.cos(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
     const lead = this.viewer || dn ? 0 : 4 * (1 - Math.min(1, pitch / 1.2));           // olha à frente da jogadora; de cima, olha para ela (na dança e na galeria, para quem está no centro)
     const bx = p.x * (this.viewer || dn ? 1 : 0.6);                                    // segue 60% do deslocamento lateral (na galeria e na dança, centrada nela)

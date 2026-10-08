@@ -24,6 +24,7 @@
 <div id="toast"></div>
 <div id="joyZone"><div id="joyBase"><div id="knob"></div></div></div>
 <div id="cueName"></div>
+<div id="calls"></div>
 <div id="btns"><button id="serveBtn">SACAR</button><div id="swingWrap"><div id="timeRing"></div><button id="swingBtn">GOLPE</button></div></div>
 <div id="viewBar" hidden>
   <select id="viewSel" aria-label="Golpe"></select>
@@ -45,6 +46,7 @@
 <div id="upd" hidden><span>Nova versão disponível</span><button id="updBtn">Atualizar</button></div>
 <div id="cover">
   <div class="cv-card">
+    <div class="cv-head">
     <svg class="cv-logo" viewBox="0 0 120 120" aria-hidden="true">
       <defs><clipPath id="cvClip"><circle cx="60" cy="60" r="53"/></clipPath></defs>
       <circle cx="60" cy="60" r="57" fill="#0d2b3e" stroke="#ff6a00" stroke-width="4"/>
@@ -63,15 +65,20 @@
     </svg>
     <h1>Jaque <span>Beach Tennis</span></h1>
     <p class="cv-sub">Play Match</p>
+    </div>
+    <div class="cv-body">
     <button id="cvMatch" class="cv-main">▶ Partida</button>
     <div class="cv-row">
-      <label>Formato<select id="cvFmt"><option value="rapida">Rápida · 4 games</option><option value="set">1 set · 6 games</option><option value="melhor3">Melhor de 3 sets</option></select></label>
+      <label>Modo<select id="cvMode"><option value="single">Single · 1 × 1</option><option value="duplas">Duplas · 2 × 2</option></select></label>
       <label>Nível<select id="cvLvl"><option value="facil">Fácil</option><option value="medio">Médio</option><option value="dificil">Difícil</option></select></label>
     </div>
+    <div class="cv-row"><label>Formato<select id="cvFmt"><option value="rapida">Rápida · 4 games</option><option value="set">1 set · 6 games</option><option value="melhor3">Melhor de 3 sets</option></select></label></div>
+    <p class="cv-hint" id="cvHint" hidden>Você e a Lari (IA no nível difícil) contra a Bia e a Duda (no nível escolhido).</p>
     <div class="cv-cam"><span class="cv-lab">Câmera</span><div class="cv-camrow"><div id="cvCams"></div><button id="cvCamEdit">📷 Ajustar</button></div></div>
     <div class="cv-row2"><button id="cvTrain">Treino na parede</button><button id="cvMoves">🎬 Golpes</button><button id="cvRank">🏆 Ranking</button></div>
     <div id="cvRankBox" hidden></div>
     <p class="cv-foot">Para a Jaqueline, com carinho</p>
+    </div>
   </div>
 </div>
 <div id="loading">Carregando…</div>
