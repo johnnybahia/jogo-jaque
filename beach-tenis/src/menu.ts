@@ -38,10 +38,10 @@ export function initMenu(game: Game, openGallery: () => void): void {
       camBox.appendChild(b);
     }
   };
-  const open = (): void => { cover.hidden = false; document.body.classList.add("menu"); document.body.classList.remove("ended"); card.hidden = true; renderRank(); renderCams(); };
+  const open = (): void => { game.coverOn(true); cover.hidden = false; document.body.classList.add("menu"); document.body.classList.remove("ended"); card.hidden = true; renderRank(); renderCams(); };
   const camEdit = initCamEdit(game, () => open());
-  $("cvCamEdit").onclick = () => { cover.hidden = true; document.body.classList.remove("menu"); camEdit.open(); };
-  const close = (): void => { cover.hidden = true; document.body.classList.remove("menu"); rankBox.hidden = true; };
+  $("cvCamEdit").onclick = () => { game.coverOn(false); cover.hidden = true; document.body.classList.remove("menu"); camEdit.open(); };
+  const close = (): void => { game.coverOn(false); cover.hidden = true; document.body.classList.remove("menu"); rankBox.hidden = true; };
   const renderRank = (): void => {
     const r = loadRank(), tab = (p: string) => LEVELS.map((l) => `<tr><td class="l">${LEVEL_TXT[l]}</td><td>${r.wins[p + l] ?? 0}</td><td>${r.losses[p + l] ?? 0}</td></tr>`).join("");
     const hasD = LEVELS.some((l) => (r.wins["d_" + l] ?? 0) + (r.losses["d_" + l] ?? 0) > 0);
@@ -60,9 +60,11 @@ export function initMenu(game: Game, openGallery: () => void): void {
 
   // placar: nomes, saque (●), games (e sets), pontos do game; no 40–40 o ponto seguinte decide
   const staOpp = document.createElement("div"); staOpp.className = "sc-sta"; staOpp.innerHTML = "<i></i>";
+  let prevSc = "";
   game.onScore = (v) => {
-    document.body.classList.toggle("match", !!v); score.hidden = !v; if (!v) return;
-    const row = (cls: string, name: string, side: 0 | 1) => `<div class="sc-row ${cls}"><span class="sc-name">${name}</span><span class="sc-srv">${v.server === side ? "●" : ""}</span>${v.multi ? `<span class="sc-s">${v.sets[side]}</span>` : ""}<span class="sc-g">${v.games[side]}</span><span class="sc-p">${v.points[side]}</span></div>`;
+    document.body.classList.toggle("match", !!v); score.hidden = !v; if (!v) { prevSc = ""; return; }
+    const now = [0, 1].map((i) => `${v.sets[i]}/${v.games[i]}/${v.points[i]}`), was = prevSc ? prevSc.split("|") : now; prevSc = now.join("|");
+    const row = (cls: string, name: string, side: 0 | 1) => `<div class="sc-row ${cls}${now[side] !== was[side] ? " pop" : ""}"><span class="sc-name">${name}</span><span class="sc-srv${v.server === side ? " on" : ""}"></span>${v.multi ? `<span class="sc-s">${v.sets[side]}</span>` : ""}<span class="sc-g">${v.games[side]}</span><span class="sc-p">${v.points[side]}</span></div>`;
     score.innerHTML = `${row("you", v.names[0], 0)}${row("opp", v.names[1], 1)}<div class="sc-foot ${v.decisive ? "dec" : ""}">${v.decisive ? "PONTO DECISIVO" : `${v.doubles ? "Duplas · " : ""}${FMT_TXT[v.fmtId] ?? v.fmt} · ${v.level}`}</div>`;
     score.appendChild(staOpp);
   };
@@ -71,7 +73,7 @@ export function initMenu(game: Game, openGallery: () => void): void {
   game.onMatchEnd = (winner, v) => {
     recordResult(v, winner === 0);
     const won = winner === 0;
-    card.innerHTML = `<h2>${won ? "Vitória! 🏆" : "Derrota"}</h2><p>${won ? (v.doubles ? "Parabéns, Jaqueline e Lari!" : "Parabéns, Jaqueline!") : "Quase! Tente de novo."}</p><p>${v.history || "—"}</p><small>${v.doubles ? "Duplas · " : ""}${v.fmt} · ${v.level}</small><div class="btns"><button class="main" id="ecAgain">Jogar de novo</button><button id="ecMenu">Menu</button></div>`;
+    card.innerHTML = `<h2>${won ? "Vitória!" : "Derrota"}</h2><p>${won ? (v.doubles ? "Parabéns, Jaqueline e Lari!" : "Parabéns, Jaqueline!") : "Quase! Tente de novo."}</p><p>${v.history || "—"}</p><small>${v.doubles ? "Duplas · " : ""}${v.fmt} · ${v.level}</small><div class="btns"><button class="main" id="ecAgain">Jogar de novo</button><button id="ecMenu">Menu</button></div>`;
     card.hidden = false; document.body.classList.add("ended");   // o cartão fica embaixo: quem venceu dança a dança inteira por cima
     $("ecAgain").onclick = () => { card.hidden = true; document.body.classList.remove("ended"); game.startMatch(v.fmtId, v.levelId, v.doubles ? "duplas" : "single"); };
     $("ecMenu").onclick = () => { card.hidden = true; document.body.classList.remove("ended"); game.endMatch(); open(); };

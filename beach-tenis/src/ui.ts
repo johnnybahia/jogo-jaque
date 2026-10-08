@@ -37,16 +37,25 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   const toast = $("toast"); let tt = 0;
   game.onToast = (m, sub) => {
     toast.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; toast.appendChild(el); }
-    toast.classList.add("on"); clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), sub ? 1300 : 900);
+    const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^(Cedo|Tarde|Longe|Sem fôlego)/.test(m) ? "miss" : /^Ponto!/.test(m) ? "win" : /^Ponto da/.test(m) ? "lose" : /^Saque/.test(m) ? "serve" : "";
+    toast.className = (k ? `k-${k} ` : "") + "on"; clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), sub ? 1300 : 900);
   };
-  const sta = $("sta"), staBar = sta.firstElementChild as HTMLElement;
+  const sta = $("sta"), staSegs: HTMLElement[] = [];   // fôlego em 10 segmentos
+  for (let i = 0; i < 10; i++) { const e = document.createElement("i"); sta.appendChild(e); staSegs.push(e); }
   const calls = $("calls");   // balões de chamada das duplas ("Minha!", "Sua!", "Fora!"): um elemento por balão, reaproveitado
   game.onCalls = (list) => {
     while (calls.children.length < list.length) { const e = document.createElement("div"); e.className = "call"; calls.appendChild(e); }
     for (let i = 0; i < calls.children.length; i++) { const e = calls.children[i] as HTMLElement, c = list[i]; if (!c) { e.style.display = "none"; continue; } e.style.display = ""; e.textContent = c.text; e.className = `call t${c.team}`; e.style.left = `${c.x}%`; e.style.top = `${c.y}%`; e.style.opacity = String(c.a); }
   };
-  game.onStamina = (v) => { staBar.style.width = `${Math.round(v * 100)}%`; sta.classList.toggle("low", v < 0.3); };
-  const upd = () => { $("rally").textContent = game.mode === "match" ? `Rali ${game.rally}` : `Rali ${game.rally} · Recorde ${game.record}`; $("info").textContent = game.info; };
+  game.onStamina = (v) => { const n = Math.ceil(v * 10 - 0.001); staSegs.forEach((e, i) => e.classList.toggle("on", i < n)); sta.classList.toggle("low", v < 0.3); sta.classList.toggle("mid", v >= 0.3 && v < 0.55); };
+  const rallyEl = $("rally"); let lastRally = -1;
+  /** canto superior esquerdo: rali (some na partida enquanto não há rali) e último golpe (no treino, com erro em ms e distância em cm; na partida só o nome) */
+  const upd = () => {
+    const m = game.mode === "match";
+    rallyEl.innerHTML = `<small>RALI</small><b>${game.rally}</b>${m ? "" : `<small class="rec">RECORDE ${game.record}</small>`}`; rallyEl.classList.toggle("idle", m && game.rally === 0);
+    if (game.rally !== lastRally) { rallyEl.classList.remove("bump"); void rallyEl.offsetWidth; if (game.rally > 0) rallyEl.classList.add("bump"); lastRally = game.rally; }
+    $("info").textContent = m ? game.info.split(" · erro")[0] : game.info;
+  };
   game.onHud = upd; upd();
 
   // joystick
