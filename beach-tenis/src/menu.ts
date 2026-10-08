@@ -1,6 +1,8 @@
 import type { Game } from "./game";
 import type { ScoreView } from "./match";
 import { S } from "./settings";
+import { CAMS, CAM_COUNT, CAM_NAMES } from "./camera";
+import { initCamEdit } from "./camedit";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const RANK_KEY = "bt.ranking.v1", PREF_KEY = "bt.matchpref.v1";
@@ -25,7 +27,19 @@ function recordResult(v: ScoreView, won: boolean): void {
 export function initMenu(game: Game, openGallery: () => void): void {
   const cover = $("cover"), fmtSel = $("cvFmt") as HTMLSelectElement, lvlSel = $("cvLvl") as HTMLSelectElement, rankBox = $("cvRankBox"), score = $("score"), card = $("endCard");
   const pref = loadPref(); fmtSel.value = pref.fmt; lvlSel.value = pref.lvl;
-  const open = (): void => { cover.hidden = false; document.body.classList.add("menu"); document.body.classList.remove("ended"); card.hidden = true; renderRank(); };
+  const camBox = $("cvCams");
+  /** as 3 câmeras na capa: a escolhida fica laranja; ✎ = posição editada por você */
+  const renderCams = (): void => {
+    camBox.textContent = "";
+    for (let i = 0; i < CAM_COUNT; i++) {
+      const b = document.createElement("button"); b.className = i === CAMS.sel ? "on" : ""; b.innerHTML = `<b>${i + 1}</b>${CAM_NAMES[i]}${CAMS.isCustom(i) ? " ✎" : ""}`;
+      b.onclick = () => { CAMS.select(i); game.applyCam(); renderCams(); };
+      camBox.appendChild(b);
+    }
+  };
+  const open = (): void => { cover.hidden = false; document.body.classList.add("menu"); document.body.classList.remove("ended"); card.hidden = true; renderRank(); renderCams(); };
+  const camEdit = initCamEdit(game, () => open());
+  $("cvCamEdit").onclick = () => { cover.hidden = true; document.body.classList.remove("menu"); camEdit.open(); };
   const close = (): void => { cover.hidden = true; document.body.classList.remove("menu"); rankBox.hidden = true; };
   const renderRank = (): void => {
     const r = loadRank(), tr = LEVELS.map((l) => `<tr><td class="l">${LEVEL_TXT[l]}</td><td>${r.wins[l] ?? 0}</td><td>${r.losses[l] ?? 0}</td></tr>`).join("");

@@ -17,7 +17,7 @@
 <div id="camZone"></div>
 <div id="hud"><div id="rally">Rali 0 · Recorde 0</div><div id="info"></div><div id="staWrap"><small>Fôlego</small><div id="sta"><i></i></div></div></div>
 <button id="gear" aria-label="Ajustes">⚙</button>
-<div id="camBtns"><button id="zoomIn" aria-label="Aproximar">＋</button><button id="zoomOut" aria-label="Afastar">－</button><button id="camReset" aria-label="Recentralizar a câmera">⟲</button></div>
+<div id="camBtns"><button id="zoomIn" aria-label="Aproximar">＋</button><button id="zoomOut" aria-label="Afastar">－</button><button id="camReset" aria-label="Voltar à posição da câmera escolhida">⟲</button><button id="camCycle" aria-label="Trocar de câmera">📷</button></div>
 <div id="leftBtns"><button id="menuBtn">☰ Menu</button><button id="installChip" hidden></button><button id="viewBtn">🎬 Golpes</button></div>
 <div id="score" hidden></div>
 <div id="endCard" hidden></div>
@@ -29,6 +29,17 @@
   <select id="viewSel" aria-label="Golpe"></select>
   <input id="viewSeek" type="range" min="0" max="1000" value="0" aria-label="Momento do golpe">
   <div class="vrow"><button id="vPrev">◀ Ant.</button><button id="vPlay">Pausar</button><button id="vNext">Próx. ▶</button><button id="vSpeed" aria-label="Velocidade">1×</button><button id="vExit">✕ Sair</button></div>
+</div>
+<div id="camEdit" hidden>
+  <button id="ceEye" aria-label="Ver a tela inteira">👁</button>
+  <div id="ceTabs"></div>
+  <div class="ce-sl">
+    <label>Giro<input id="ceYaw" type="range" min="-180" max="180" step="1" aria-label="Giro"><b id="ceYawV"></b></label>
+    <label>Altura<input id="cePitch" type="range" min="4" max="77" step="1" aria-label="Altura (inclinação)"><b id="cePitchV"></b></label>
+    <label>Distância<input id="ceDist" type="range" min="18" max="140" step="1" aria-label="Distância"><b id="ceDistV"></b></label>
+  </div>
+  <div class="ce-btns"><button id="ceSave" class="main">💾 Salvar</button><button id="ceReset">↺ Padrão</button><button id="ceDone">✔ Pronto</button></div>
+  <small>Arraste a tela para girar · pinça ou ＋ － para o zoom · ⟲ volta à salva</small>
 </div>
 <div id="panel" hidden></div>
 <div id="upd" hidden><span>Nova versão disponível</span><button id="updBtn">Atualizar</button></div>
@@ -57,6 +68,7 @@
       <label>Formato<select id="cvFmt"><option value="rapida">Rápida · 4 games</option><option value="set">1 set · 6 games</option><option value="melhor3">Melhor de 3 sets</option></select></label>
       <label>Nível<select id="cvLvl"><option value="facil">Fácil</option><option value="medio">Médio</option><option value="dificil">Difícil</option></select></label>
     </div>
+    <div class="cv-cam"><span class="cv-lab">Câmera</span><div class="cv-camrow"><div id="cvCams"></div><button id="cvCamEdit">📷 Ajustar</button></div></div>
     <div class="cv-row2"><button id="cvTrain">Treino na parede</button><button id="cvMoves">🎬 Golpes</button><button id="cvRank">🏆 Ranking</button></div>
     <div id="cvRankBox" hidden></div>
     <p class="cv-foot">Para a Jaqueline, com carinho</p>

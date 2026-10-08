@@ -18,7 +18,6 @@ const SPECS: Array<[string, Spec[]]> = [
   ]],
   ["Câmera", [
     { key: "camSens", label: "Sensibilidade do giro (×)", min: 0.4, max: 2.5, step: 0.1 },
-    { key: "camDist", label: "Distância / zoom (m)", min: 1.8, max: 14, step: 0.1 },
   ]],
   ["Marcas dos pés", [{ key: "footLife", label: "Duração (s)", min: 5, max: 60, step: 1 }]],
   ["Sincronia", [{ key: "contactOffset", label: "Ajuste do contato (frames)", min: -10, max: 10, step: 1, recalc: true }]],
@@ -64,7 +63,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     if (game.viewer && (k === "escape" || k === "arrowleft" || k === "arrowright" || k === " ")) { if (k === "escape") game.viewClose(); else if (k === " ") game.viewPause(); else game.viewStep(k === "arrowleft" ? -1 : 1); e.preventDefault(); return; }
     if (k === "g") { if (game.viewer) game.viewClose(); else openView(); return; }
     if (k === " ") { game.manualSwing(); e.preventDefault(); } else if (k === "enter") game.serve();
-    else if (k === "q") game.orbit(0.12, 0); else if (k === "e") game.orbit(-0.12, 0); else if (k === "+" || k === "=") game.zoom(0.9); else if (k === "-") game.zoom(1.1); else if (k === "r") game.recenter();
+    else if (k === "q") game.orbit(0.12, 0); else if (k === "e") game.orbit(-0.12, 0); else if (k === "+" || k === "=") game.zoom(0.9); else if (k === "-") game.zoom(1.1); else if (k === "r") game.recenter(); else if (k === "c") game.cycleCam();
     else { keys.add(k); kbd(); }
   });
   addEventListener("keyup", (e) => { keys.delete(e.key.toLowerCase()); kbd(); });
@@ -95,6 +94,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   $("zoomIn").addEventListener("click", () => { game.zoom(0.85); saveSettings(); });
   $("zoomOut").addEventListener("click", () => { game.zoom(1.18); saveSettings(); });
   $("camReset").addEventListener("click", () => game.recenter());
+  $("camCycle").addEventListener("click", () => game.cycleCam());
 
   // galeria de golpes: botão 🎬 Golpes (ou o menu) interrompe o rali e repete o golpe do vídeo; pausa, câmera lenta e arrastar o tempo
   const vbar = $("viewBar"), vsel = $("viewSel") as HTMLSelectElement, vseek = $("viewSeek") as HTMLInputElement, vplay = $("vPlay"), vspeed = $("vSpeed");
