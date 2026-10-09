@@ -68,6 +68,9 @@ export class Atmosphere {
   /** vai para `t` (0..1) com suavidade; `snap` pula direto */
   setTarget(t: number, snap = false): void { this.target = THREE.MathUtils.clamp(t, 0, 1); if (snap) this.t = this.target; }
 
+  /** o sol (e a caixa da sombra) olha para este ponto do chão: a quadra, ou a faixa de areia do frescobol */
+  focus(x: number, z: number): void { this.p.sun.target.position.set(x, 0, z); this.apply(); }
+
   private mix(t: number): void { const x = t * 2, i = Math.min(1, Math.floor(x)); mixInto(this.cur, ATMOS[i], ATMOS[i + 1], x - i); }
 
   update(dt: number, camera: THREE.Camera): void {

@@ -2,8 +2,11 @@ import * as THREE from "three";
 
 /** Céu, mar e horizonte (como `buildSky`/`buildMountains` do ninja): domo de céu em shader, mar com espuma na beira e dois anéis de silhuetas (dunas e morros) com neblina por distância.
  *  Geografia: o mar fica no lado −x do mundo (à direita da câmera padrão, que olha para +z); a areia desce em rampa a partir de x = SHORE.x0. */
-export const SHORE = { x0: -20, slope: 0.05, sea: -0.3 };   // abaixo de x0 a areia afunda `slope` m por m; o nível do mar é y = sea (a linha d'água fica em x ≈ −26)
-export const sandHeight = (x: number): number => (x < SHORE.x0 ? -SHORE.slope * (SHORE.x0 - x) : 0);
+export const SHORE = { x0: -20, slope: 0.05, sea: -0.3, bank: 1 };   // x0: referência da rampa (cor do mar e areia molhada); abaixo da linha d'água a areia afunda `slope` m por m; o nível do mar é y = sea
+export const WATER_X = SHORE.x0 + SHORE.sea / SHORE.slope;   // −26: onde a areia encontra o mar
+export const SHELF_X = WATER_X + SHORE.bank;                  // −25: até aqui a areia é plana (patamar firme onde se joga frescobol); daqui até a água, um degrau de `bank` m
+/** relevo da areia: plana até o patamar, degrau até o nível do mar e, daí para dentro d'água, a rampa de sempre (a linha d'água continua em x = −26; antes a rampa começava em x = −20 e os pés ficariam no ar na beira do mar) */
+export const sandHeight = (x: number): number => (x >= SHELF_X ? 0 : x >= WATER_X ? SHORE.sea * (SHELF_X - x) / SHORE.bank : -SHORE.slope * (SHORE.x0 - x));
 
 const TONE = `#include <tonemapping_fragment>\n#include <colorspace_fragment>`;
 
@@ -91,7 +94,7 @@ export function buildSea(): { mesh: THREE.Mesh; u: SeaUniforms } {
       varying vec3 vW;
       float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p){ vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f); return mix(mix(hash(i), hash(i + vec2(1, 0)), u.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), u.x), u.y); }
-      const float X0 = ${SHORE.x0.toFixed(2)}; const float SLOPE = ${SHORE.slope.toFixed(3)}; const float SEA = ${SHORE.sea.toFixed(2)};
+      const float X0 = ${SHORE.x0.toFixed(2)}; const float SLOPE = ${SHORE.slope.toFixed(3)}; const float SEA = ${SHORE.sea.toFixed(2)}; const float WATERX = ${WATER_X.toFixed(3)}; const float SHELF = ${SHELF_X.toFixed(3)}; const float BANK = ${SHORE.bank.toFixed(3)};
       vec2 waves(vec2 p, float t){
         vec2 g = vec2(0.0);
         g += vec2(0.8, 0.6) * cos(dot(vec2(0.8, 0.6), p) * 0.9 + t * 1.1) * 0.020 * 0.9;
@@ -104,7 +107,7 @@ export function buildSea(): { mesh: THREE.Mesh; u: SeaUniforms } {
         vec3 toCam = uCam - vW; float dist = length(toCam); vec3 V = toCam / dist;
         vec2 g = waves(vW.xz, uTime) * uWaves; g *= 1.0 / (1.0 + dist * 0.02);
         vec3 N = normalize(vec3(-g.x, 1.0, -g.y));
-        float sandY = vW.x < X0 ? -SLOPE * (X0 - vW.x) : 0.0; float depth = SEA - sandY;
+        float sandY = vW.x >= SHELF ? 0.0 : (vW.x >= WATERX ? SEA * (SHELF - vW.x) / BANK : -SLOPE * (X0 - vW.x)); float depth = SEA - sandY;
         float k = clamp((X0 - 6.0 - vW.x) / 70.0, 0.0, 1.0);
         vec3 base = mix(uShallow, uDeep, smoothstep(0.0, 1.0, k));
         float fres = 0.03 + 0.97 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
@@ -125,13 +128,13 @@ export function buildSea(): { mesh: THREE.Mesh; u: SeaUniforms } {
       }`,
   });
   const geo = new THREE.PlaneGeometry(1400, 1400); geo.rotateX(-Math.PI / 2);
-  const mesh = new THREE.Mesh(geo, mat); mesh.position.set(SHORE.x0 - 6 - 700, SHORE.sea, 0); mesh.frustumCulled = false; mesh.renderOrder = -5;
+  const mesh = new THREE.Mesh(geo, mat); mesh.position.set(WATER_X - 700, SHORE.sea, 0); mesh.frustumCulled = false; mesh.renderOrder = -5;
   return { mesh, u };
 }
 
 /** areia: um retângulo enorme com rampa para o mar (poucos vértices; o relevo é a função `sandHeight`) e UV em metros × 0,25 (a repetição da textura vem do `wrap`) */
 export function buildSandGeometry(extent = 450): THREE.BufferGeometry {
-  const xs = [-extent, SHORE.x0, extent], zs = [-extent, extent], pos: number[] = [], uv: number[] = [], idx: number[] = [];
+  const xs = [-extent, WATER_X, SHELF_X, extent], zs = [-extent, extent], pos: number[] = [], uv: number[] = [], idx: number[] = [];
   for (const z of zs) for (const x of xs) { pos.push(x, sandHeight(x), z); uv.push(x * 0.25, z * 0.25); }
   for (let j = 0; j < zs.length - 1; j++) for (let i = 0; i < xs.length - 1; i++) { const a = j * xs.length + i, b = a + 1, c = a + xs.length, d = c + 1; idx.push(a, c, b, b, c, d); }
   const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals();

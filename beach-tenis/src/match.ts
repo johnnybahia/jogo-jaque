@@ -3,7 +3,8 @@ import { NEED_OK, NEED_RELAX } from "./game";
 import type { Game, Cand } from "./game";
 import type { Opponent, OppSwing } from "./opponent";
 import { Score, Format, Side } from "./rules";
-import { MATCH, NET_H } from "./scene";
+import { MATCH } from "./scene";
+import { SHELF_X } from "./sky";
 import { BALL_R, Ball, Sample, Tun, predict, solveShot } from "./physics";
 import { INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex, strokeOf } from "./strokes";
 import { S } from "./settings";
@@ -28,7 +29,7 @@ const clamp = THREE.MathUtils.clamp;
  *  Medido com o bot: até ~60% de força não ganha nem perde pontos de forma mensurável; acima de ~80% os erros próprios sobem (15–25% dos pontos a 100%). Sem segurar nada, a bola sai idêntica à de antes (teste com sorteio fixo). */
 export const PW = { depth: 0.7, fly: 0.1, spread: 0.3, wide: 1.0, room: 7.9, press: 0.12 };   // depth/wide: m a mais de profundidade (média / limite de cima do sorteio); room: até onde a força empurra a bola (m depois da rede; a linha é em 8,05), então o lob, que já cai no fundo, quase não muda
 /** a bola está dentro das linhas (a linha vale) */
-export const inCourt = (x: number, z: number): boolean => Math.abs(x) <= MATCH.halfW + 0.05 && z >= -0.05 && z <= MATCH.len + 0.05;
+export const inCourt = (x: number, z: number): boolean => Math.abs(x - MATCH.cx) <= MATCH.halfW + 0.05 && z >= -0.05 && z <= MATCH.len + 0.05;
 
 /** s depois do último ponto da partida em que as vencedoras começam a ir ao ponto de comemoração */
 export const CELEB_AT = 0.7;
@@ -41,7 +42,7 @@ interface AIPlan { arrival: number; startAt: number; x1: number; z1: number; cli
 export interface Ai { o: Opponent; team: Side; idx: 0 | 1; lvl: Level; plan: AIPlan | null; hitAt: number; letGo: boolean; chase: boolean; }
 /** quem está em quadra além da jogadora: a parceira (duplas) e as adversárias (1 no single, 2 nas duplas) */
 export interface Lineup { partner: Opponent | null; foes: Opponent[]; }
-export interface ScoreView { server: Side; games: [number, number]; sets: [number, number]; points: [string, string]; decisive: boolean; history: string; over: Side | null; fmt: string; fmtId: string; level: string; levelId: string; multi: boolean; names: [string, string]; doubles: boolean; }
+export interface ScoreView { server: Side; games: [number, number]; sets: [number, number]; points: [string, string]; decisive: boolean; history: string; over: Side | null; fmt: string; fmtId: string; level: string; levelId: string; multi: boolean; names: [string, string]; doubles: boolean; fresco: boolean; }
 interface Planned { cost: number; plan: AIPlan; pick: { key: string; y: number; lat: number; ahead: number; shift: number }; }
 interface Target { human: boolean; ai?: Ai; }
 
@@ -51,7 +52,7 @@ export class Match {
   score: Score; lastHitter: Side = 0; hitId = 0; private hits0 = 0; over: Side | null = null;
   stats = { plans: 0, noPlan: 0, letGo: 0, whiff: 0, miss: 0, hit: 0, err: 0, soft: 0, serves: 0 };   // diagnóstico da IA
   lastPick: { key: string; y: number; lat: number; ahead: number; shift: number } | null = null;        // diagnóstico: último golpe escolhido por uma IA e onde a bola chega em relação ao corpo dela
-  readonly doubles: boolean; readonly ais: Ai[]; readonly partner: Ai | null; readonly foes: Ai[];
+  readonly doubles: boolean; readonly fresco = MATCH.id === "fresco"; readonly ais: Ai[]; readonly partner: Ai | null; readonly foes: Ai[];   // fresco: jogada na faixa de areia ao lado do mar (sem rede, sem linhas)
   /** duplas: a bola que vem das adversárias é da jogadora (true) ou da parceira (false); a IA que bateu escolhe a quem manda */
   humanOwns = true; private pressure = 0;   // força da última bola da jogadora (0 a 1): a adversária que a recebe erra mais (PW.press)
   /** quem saca neste ponto, se for uma IA (a adversária ou a parceira); null = a jogadora */
@@ -74,7 +75,7 @@ export class Match {
   view(): ScoreView {
     const s = this.score, [a, b] = s.pointText(), d = this.doubles;
     return { server: s.server, games: [...s.games], sets: [...s.sets], points: [a, b], decisive: s.decisive, history: s.history.map((h) => `${h[0]}-${h[1]}`).join(" "), over: this.over, fmt: this.fmt.label, fmtId: this.fmt.id, level: this.lvl.label, levelId: this.lvl.id, multi: this.fmt.setsToWin > 1,
-      names: d ? [`${NAMES[0][0]} e ${NAMES[0][1]}`, `${NAMES[1][0]} e ${NAMES[1][1]}`] : ["Jaqueline", "Adversária"], doubles: d };
+      names: d ? [`${NAMES[0][0]} e ${NAMES[0][1]}`, `${NAMES[1][0]} e ${NAMES[1][1]}`] : ["Jaqueline", "Adversária"], doubles: d, fresco: this.fresco };
   }
 
   // ---------- tiro por cima da rede ----------
@@ -87,7 +88,7 @@ export class Match {
       const b: Ball = { x: from.x, y: from.y, z: from.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null };
       let prev = from.z, ok = false;
       for (const sm of predict(b, this.noNet, T + 0.05, 1 / 120, true)) {
-        if ((prev - MATCH.netZ) * (sm.z - MATCH.netZ) <= 0) { ok = sm.y >= NET_H + BALL_R + 0.1; break; }
+        if ((prev - MATCH.netZ) * (sm.z - MATCH.netZ) <= 0) { ok = sm.y >= MATCH.netH + BALL_R + 0.1; break; }
         prev = sm.z;
       }
       if (ok) return { v, T };
@@ -112,7 +113,7 @@ export class Match {
     const pr = PROFILE[key] ?? PROFILE.fh_din, qAdj = q === 2 ? 0.5 : q === 0 ? -1.0 : 0;
     const rf = pw > 0 ? clamp((PW.room - (pr.d[1] + qAdj)) / PW.depth, 0, 1) : 1;   // folga até a linha de fundo: quanto menos, menos a força empurra a bola
     const spread = S.aimSpread * (q === 2 ? 0.35 : q === 1 ? 0.9 : 1.6) * (1 + PW.spread * pw);
-    const adj = qAdj + PW.depth * pw * rf, hi = PW.wide * pw * rf;
+    const adj = qAdj + PW.depth * pw * rf + MATCH.depthAdj, hi = PW.wide * pw * rf;
     const T = pr.T * Math.pow(12.5 / S.ballSpeed, 0.6) * (serve ? 0.95 : q === 2 ? 0.94 : q === 0 ? 1.1 : 1) * (1 - PW.fly * pw);
     return { pr, spread, adj, hi, T };
   }
@@ -120,33 +121,35 @@ export class Match {
   /** bola da jogadora: onde cai (mira + qualidade do tempo + força) e quanto voa (golpe + velocidade da bola nos ajustes) */
   playerShot(H: THREE.Vector3, clip: string, q: number, aim: number, serve = false, pw = 0): void {
     const key = serve ? "saque" : strokeOf(clip)?.key ?? "fh_din", m = this.shotModel(key, q, serve ? 0 : pw, serve);
-    const lx = clamp(aim * 3.0 + (Math.random() - 0.5) * 2 * m.spread, -4.9, 4.9);
-    let d = m.pr.d[0] + (m.pr.d[1] - m.pr.d[0] + m.hi) * Math.random() + m.adj, T = m.T, clear = true;
+    const lx = MATCH.cx + clamp(aim * 3.0 + (Math.random() - 0.5) * 2 * m.spread, -MATCH.aimPlX, MATCH.aimPlX);
+    let d = m.pr.d[0] + (m.pr.d[1] - m.pr.d[0] + m.hi) * Math.random() * MATCH.depthK + m.adj, T = m.T, clear = true;
     if (!serve && q === 0) { const r = Math.random(); if (r < 0.2) { clear = false; T *= 0.6; } else if (r < 0.4) d += 3.2; }   // tempo ruim: bola na rede ou longa
     this.pressure = serve ? 0 : pw; this.launch(H, lx, MATCH.netZ + clamp(d, 1, 9.5), T, 0, clear);
   }
 
   /** marcador de queda: onde a bola da jogadora deve cair com esta mira, tempo e força (centro, meia-largura e meia-profundidade da dispersão, m) e a fração do sorteio que fica dentro das linhas */
   preview(clip: string, q: number, aim: number, pw: number): { x: number; z: number; rx: number; rz: number; inside: number } {
-    const m = this.shotModel(strokeOf(clip)?.key ?? "fh_din", q, pw, false), x = clamp(aim * 3.0, -4.9, 4.9), d0 = m.pr.d[0] + m.adj, d1 = m.pr.d[1] + m.adj + m.hi;
+    const m = this.shotModel(strokeOf(clip)?.key ?? "fh_din", q, pw, false), x = MATCH.cx + clamp(aim * 3.0, -MATCH.aimPlX, MATCH.aimPlX), d0 = m.pr.d[0] + m.adj, d1 = MATCH.depthK === 1 ? m.pr.d[1] + m.adj + m.hi : d0 + (m.pr.d[1] - m.pr.d[0] + m.hi) * MATCH.depthK;
     const frac = (lo: number, hi: number, a: number, b: number): number => hi > lo ? clamp((Math.min(hi, b) - Math.max(lo, a)) / (hi - lo), 0, 1) : lo >= a && lo <= b ? 1 : 0;
-    const lat = frac(x - m.spread, x + m.spread, -MATCH.halfW - 0.05, MATCH.halfW + 0.05), dep = frac(d0, d1, -99, MATCH.len - MATCH.netZ + 0.05);
+    const lat = frac(x - m.spread, x + m.spread, MATCH.cx - MATCH.halfW - 0.05, MATCH.cx + MATCH.halfW + 0.05), dep = frac(d0, d1, -99, MATCH.len - MATCH.netZ + 0.05);
     return { x, z: MATCH.netZ + clamp((d0 + d1) / 2, 1, 9.5), rx: m.spread, rz: (d1 - d0) / 2, inside: lat * dep * (q === 0 ? 0.6 : 1) };
   }
 
   // ---------- pontos ----------
   /** o 1º toque na areia decide o ponto (bola viva): de quem foi o último golpe, em que lado caiu e se foi dentro das linhas */
   onSand(): void {
-    const b = this.g.ball, side: Side = b.z < MATCH.netZ ? 0 : 1, H = this.lastHitter, inside = inCourt(b.x, b.z);
+    const b = this.g.ball, side: Side = b.z < MATCH.netZ ? 0 : 1, H = this.lastHitter, inside = inCourt(b.x, b.z), f = this.fresco;
     if (side === H) this.pointEnd(H === 0 ? 1 : 0, H === 0 ? "Bola curta" : "Bola curta da adversária");
-    else if (inside) this.pointEnd(H, H === 0 ? "Bola no chão da adversária" : "Quicou na areia");
-    else this.pointEnd(H === 0 ? 1 : 0, H === 0 ? "Fora!" : "Fora da adversária");
+    else if (inside) this.pointEnd(H, f ? (H === 0 ? "Caiu no chão da adversária" : "Caiu na areia") : H === 0 ? "Bola no chão da adversária" : "Quicou na areia", true);
+    else if (f && b.x < SHELF_X) { this.g.splash(b.x, b.z); this.pointEnd(H === 0 ? 1 : 0, H === 0 ? "Na água!" : "Na água (adversária)"); }   // frescobol: a bola passou da beirada do patamar
+    else this.pointEnd(H === 0 ? 1 : 0, f ? (H === 0 ? "Fora de alcance" : "Fora de alcance da adversária") : H === 0 ? "Fora!" : "Fora da adversária");
   }
   onNet(): void { this.pointEnd(this.lastHitter === 0 ? 1 : 0, this.lastHitter === 0 ? "Na rede" : "Rede da adversária"); }
 
-  pointEnd(winner: Side, reason: string): void {
+  /** `landed`: a bola caiu dentro do campo sem ninguém devolver (ponto de quem bateu) */
+  pointEnd(winner: Side, reason: string, landed = false): void {
     const g = this.g, srv = this.score.server, r = this.score.pointWon(winner);
-    const hits = this.hitId - this.hits0, landed = reason === "Bola no chão da adversária" || reason === "Quicou na areia"; this.hits0 = this.hitId;   // destaques: ace (saque sem devolução), smash que cai dentro, ralis longos
+    const hits = this.hitId - this.hits0; this.hits0 = this.hitId;   // destaques: ace (saque sem devolução), smash que cai dentro, ralis longos
     const tag = landed && winner === srv && hits <= 1 ? "ACE!" : landed && hits >= 3 && (g.lastKey === "smash" || g.lastKey === "espeto") ? "SMASH!" : hits >= 16 ? `RALI DE ${hits}!` : undefined;
     if (r.match !== undefined) this.over = r.match;
     if (this.score.server !== srv || r.game !== undefined) this.rotateServer();
@@ -171,19 +174,22 @@ export class Match {
   // ---------- lugares ----------
   /** corredor de cada uma (m): a jogadora na esquerda (+x, de quem olha para a rede), a parceira na direita; nas adversárias o lado delas é o oposto */
   private lane(team: Side, idx: 0 | 1): number { return (team === 0 ? (idx === 0 ? 1 : -1) : (idx === 0 ? -1 : 1)) * LANE; }
-  private homeX1(): number { return clamp(-this.g.rig.root.position.x * 0.3, -1.5, 1.5); }
+  private homeX1(): number { return MATCH.cx + clamp(-(this.g.rig.root.position.x - MATCH.cx) * 0.3, -1.5, 1.5); }
   /** onde cada uma espera o ponto. Single: quem saca fica atrás da linha de fundo e quem recebe, um pouco à frente. Duplas: quem saca atrás da linha, a parceira colada na rede (1,8 m);
    *  quem recebe, a de trás a ~6 m da rede e a parceira a 2,7 m */
   homeOf(team: Side, idx: 0 | 1): { x: number; z: number } {
     const serving = this.score.server === team;
-    if (!this.doubles) return team === 0 ? { x: 0, z: serving ? -0.3 : 1.5 } : { x: this.homeX1(), z: serving ? MATCH.len + 0.3 : MATCH.len - 1.6 };
+    if (!this.doubles) {
+      if (MATCH.homeD !== null) return team === 0 ? { x: MATCH.cx, z: MATCH.netZ - MATCH.homeD } : { x: this.homeX1(), z: MATCH.netZ + (MATCH.homeDAi ?? MATCH.homeD) };   // frescobol: as duas à mesma distância da linha central, quem saca ou recebe
+      return team === 0 ? { x: MATCH.cx, z: serving ? -0.3 : 1.5 } : { x: this.homeX1(), z: serving ? MATCH.len + 0.3 : MATCH.len - 1.6 };
+    }
     const dir = team === 0 ? 1 : -1, x = this.lane(team, idx), at = (d: number) => MATCH.netZ - dir * d;
     if (serving) return idx === this.serverIdx ? { x: x * 0.75, z: at(MATCH.netZ + 0.3) } : { x, z: at(1.8) };
     return idx === 0 ? { x, z: at(6.0) } : { x, z: at(2.7) };
   }
   homeOfHuman(): { x: number; z: number } { return this.homeOf(0, 0); }
   /** onde quem venceu comemora: no meio da metade dela, a ~6 m da rede (longe da rede, para a câmera da dança ficar na metade dela), lado a lado nas duplas */
-  celebrationSpot(team: Side, idx: 0 | 1): { x: number; z: number } { const dir = team === 0 ? 1 : -1; return { x: this.doubles ? this.lane(team, idx) * 0.65 : 0, z: MATCH.netZ - dir * 6.0 }; }
+  celebrationSpot(team: Side, idx: 0 | 1): { x: number; z: number } { const dir = team === 0 ? 1 : -1; return { x: this.doubles ? this.lane(team, idx) * 0.65 : MATCH.cx, z: MATCH.netZ - dir * 6.0 }; }
   /** fim da partida: todas as vencedoras chegaram ao ponto de comemoração (a jogadora também) */
   celebrationReady(): boolean {
     const w = this.over; if (w === null) return false; const p = this.g.rig.root.position;
@@ -198,7 +204,7 @@ export class Match {
   /** onde fica quem não vai na bola: no single, volta ao centro; nas duplas, a "corda invisível": no corredor dela, acompanhando em bloco a parceira (se uma vai à lateral, a outra fecha o meio)
    *  e a uma distância da rede que depende da dela (uma sobe, a outra cobre atrás; se uma recua para o lob, a outra sobe) */
   private formation(a: Ai): { x: number; z: number } {
-    if (!this.doubles) return { x: this.homeX1(), z: MATCH.len - 3.2 };
+    if (!this.doubles) return { x: this.homeX1(), z: MATCH.homeD !== null ? MATCH.netZ + (MATCH.homeDAi ?? MATCH.homeD) : MATCH.len - 3.2 };
     const dir = a.o.dir, mate = a.team === 0 ? this.g.rig.root.position : this.ais.find((b) => b !== a && b.team === a.team)!.o, mateIdx: 0 | 1 = a.team === 0 ? 0 : (a.idx ^ 1) as 0 | 1;
     const dm = dir * (MATCH.netZ - mate.z), dp = clamp(4.5 - 0.45 * dm, 2.0, 4.5);
     const x = this.lane(a.team, a.idx) + BLOCK * (mate.x - this.lane(a.team, mateIdx));
@@ -211,8 +217,8 @@ export class Match {
   private moveTo(a: Ai, tx: number, tz: number, sp: number, dt: number): void {
     const o = a.o, dx = tx - o.x, dz = tz - o.z, d = Math.hypot(dx, dz), want = d > 0.05 ? Math.min(sp, d * 4) : 0, k = Math.min(1, 9 * dt);
     o.vx += ((d > 0.05 ? (dx / d) * want : 0) - o.vx) * k; o.vz += ((d > 0.05 ? (dz / d) * want : 0) - o.vz) * k;
-    o.x = clamp(o.x + o.vx * dt, -5.2, 5.2);
-    o.z = MATCH.netZ - o.dir * clamp(o.dir * (MATCH.netZ - (o.z + o.vz * dt)), 0.7, 12);   // do lado dela: de 0,7 a 12 m da rede
+    o.x = MATCH.cx + clamp(o.x + o.vx * dt - MATCH.cx, -MATCH.aiRunX, MATCH.aiRunX);
+    o.z = MATCH.netZ - o.dir * clamp(o.dir * (MATCH.netZ - (o.z + o.vz * dt)), 0.7, MATCH.back);   // do lado dela: de 0,7 m da linha central até `back` (12 m na quadra)
     if (this.doubles) this.separate(a);
   }
 
@@ -233,7 +239,7 @@ export class Match {
       for (const c of cands) {
         const dy = Math.abs(smp.y - c.cy); if (dy > 0.2) continue;
         const x1 = smp.x - dir * c.cx, z1 = smp.z - dir * c.cz, dn1 = dir * (net - z1);   // posição dela para o ponto de contato (o clipe é espelhado quando ela olha para −z)
-        if (Math.abs(x1) > 5.2 || dn1 < 0.8 || dn1 > 11.5) continue;
+        if (Math.abs(x1 - MATCH.cx) > MATCH.aiRunX || dn1 < 0.8 || dn1 > MATCH.back - 0.5) continue;
         const shift = Math.hypot(x1 - o.x, z1 - o.z), need = Math.max(0, shift - lv.reach) / Math.max(0.05, smp.t - lv.react - 0.6 * c.prep / ts - 0.1);   // o golpe acelera até 1,9× (preparo comprimido)
         if (need > cap) continue;
         const lat = -dir * (smp.x - o.x), ahead = dir * (smp.z - o.z);   // a direita dela é −dir·x e a frente, dir·z
@@ -242,7 +248,7 @@ export class Match {
       }
     }
     if (!best) return null;
-    const stretch = clamp(best.need / cap, 0, 1), pErr = lv.err * (0.5 + 1.1 * stretch) + PW.press * this.pressure, r = Math.random();
+    const stretch = clamp(best.need / cap, 0, 1), pErr = lv.err * MATCH.errK * (0.5 + 1.1 * stretch) + PW.press * this.pressure, r = Math.random();
     return { cost: best.cost, pick: { key: best.c.key, y: best.smp.y, lat: best.lat, ahead: best.ahead, shift: best.shift },
       plan: { arrival: g.time + best.smp.t, startAt: g.time + best.smp.t - 0.8 * best.c.prep / ts, x1: best.x1, z1: best.z1, clip: best.c.clip, key: best.c.key, kind: best.c.kind, whiff: r < pErr * 0.35, err: r >= pErr * 0.35 && r < pErr, stretch } };
   }
@@ -256,7 +262,7 @@ export class Match {
     this.stats.plans++;
     for (const a of ais) { a.plan = null; a.letGo = false; a.chase = false; a.hitAt = g.time; }
     const smps = predict(g.ball, g.tun, 5, 1 / 120, true), last = smps[smps.length - 1];
-    if (last && last.y <= BALL_R + 0.02 && !inCourt(last.x, last.z) && Math.random() < ais[0].lvl.smart) { for (const a of ais) a.letGo = true; this.stats.letGo++; if (this.doubles) { const b = g.ball; g.call("Fora!", ais.reduce((m, a) => (Math.hypot(a.o.x - b.x, a.o.z - b.z) < Math.hypot(m.o.x - b.x, m.o.z - b.z) ? a : m)).o, team); } return; }   // vai cair fora: deixa passar (e avisa)
+    if (MATCH.lines && last && last.y <= BALL_R + 0.02 && !inCourt(last.x, last.z) && Math.random() < ais[0].lvl.smart) { for (const a of ais) a.letGo = true; this.stats.letGo++; if (this.doubles) { const b = g.ball; g.call("Fora!", ais.reduce((m, a) => (Math.hypot(a.o.x - b.x, a.o.z - b.z) < Math.hypot(m.o.x - b.x, m.o.z - b.z) ? a : m)).o, team); } return; }   // vai cair fora: deixa passar (e avisa)
     let best: { a: Ai; p: Planned } | null = null;
     for (const a of ais) { const p = this.plan(a, smps); if (p && (!best || p.cost < best.p.cost)) best = { a, p }; }
     if (!best) { this.stats.noPlan++; const b = g.ball; let near = ais[0]; for (const a of ais) if (Math.hypot(a.o.x - b.x, a.o.z - b.z) < Math.hypot(near.o.x - b.x, near.o.z - b.z)) near = a; near.chase = true; return; }   // não alcança: a mais perto corre atrás
@@ -305,7 +311,7 @@ export class Match {
   private aiShot(a: Ai, serve: boolean, error: boolean): void {
     const g = this.g, lv = a.lvl, pl = g.rig.root.position, b = g.ball, H = new THREE.Vector3(b.x, b.y, b.z), ts = S.timeScale, net = MATCH.netZ, rnd = (x: number, y: number) => x + (y - x) * Math.random();
     if (error) { this.stats.err++; this.aiError(a, H, serve); return; }
-    const mulP = 0.5 + 0.5 * g.speedMul(), reachP = g.reachR(), lock = g.lockLeft(), keys = Object.keys(INTENT_W), out = a.team === 1 && this.humanOut(), foes = out ? [{ human: true } as Target] : this.targetsOf(a.team, serve);
+    const mulP = 0.5 + 0.5 * g.speedMul(), reachP = g.reachR(), lock = g.lockLeft(), keys = MATCH.strokes ? Object.keys(INTENT_W).filter((k) => MATCH.strokes!.includes(k)) : Object.keys(INTENT_W), out = a.team === 1 && this.humanOut(), foes = out ? [{ human: true } as Target] : this.targetsOf(a.team, serve);
     for (let at = 0; at < 40; at++) {
       const tg = foes[foes.length > 1 && (at % 4 === 3 || (at >= 24 && at % 2 === 1)) ? 1 : 0], ta = tg.ai, td = ta ? ta.o.dir : 1, tp: { x: number; z: number } = ta ? ta.o : out ? this.homeOfHuman() : pl;   // td: para onde o alvo olha
       const key = keys[(Math.random() * keys.length) | 0], list = g.candList(key); if (!list.length) continue;
@@ -313,8 +319,8 @@ export class Match {
       let lim: number, shiftMax: number;
       if (ta) { lim = this.cap(ta) * (at < 28 ? 0.8 : 1); shiftMax = Math.min(3.4, ta.lvl.reach + lim * Math.max(0.15, Tf - ta.lvl.react - 0.6 * c.prep / ts - 0.1)); }
       else { lim = (at < 28 ? NEED_OK : NEED_RELAX) * mulP; shiftMax = Math.min(3.4, reachP + lim * Math.max(0.15, Tf - lock - c.prep / ts - 0.1)); }
-      const shift = shiftMax * Math.min(1.3, lv.diff * rnd(0.15, 1.05)), th = rnd(0, 2 * Math.PI);
-      const px = clamp(tp.x + shift * Math.sin(th), -3.8, 3.8), pz = net - td * clamp(td * (net - (tp.z + shift * Math.cos(th))), 1.2, 7.6);   // o alvo fica na metade dele da quadra
+      const shift = shiftMax * Math.min(1.3, lv.diff * MATCH.diffK * rnd(0.15, 1.05)), th = rnd(0, 2 * Math.PI);
+      const px = MATCH.cx + clamp(tp.x + shift * Math.sin(th) - MATCH.cx, -MATCH.aimAiX, MATCH.aimAiX), pz = net - td * clamp(td * (net - (tp.z + shift * Math.cos(th))), 1.2, MATCH.aimBack);   // o alvo fica na metade dele da quadra
       const C = new THREE.Vector3(px + td * c.cx, c.cy, pz + td * c.cz);
       if (fitCost(c.key, c.cy, -td * (C.x - tp.x), td * (C.z - tp.z)) > (at < 20 ? 0.3 : at < 32 ? 0.9 : 1e9)) continue;   // a bola chega do lado e na altura em que esse golpe é o certo para ele
       const v = solveShot(H, C, Tf);
@@ -322,7 +328,7 @@ export class Match {
       const bb: Ball = { x: H.x, y: H.y, z: H.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null };
       let prev = H.z, clear = false, atC: Sample | null = null, last: Sample | null = null;
       for (const sm of predict(bb, this.noNet, Tf + 2.5, 1 / 120, true)) {
-        if (!clear && (prev - net) * (sm.z - net) <= 0) { clear = sm.y >= NET_H + BALL_R + 0.12; if (!clear) break; }
+        if (!clear && (prev - net) * (sm.z - net) <= 0) { clear = sm.y >= MATCH.netH + BALL_R + 0.12; if (!clear) break; }
         prev = sm.z; if (!atC && sm.t >= Tf) atC = sm; last = sm;
       }
       if (!clear || !atC || !last || last.y > BALL_R + 0.03 || !inCourt(last.x, last.z)) continue;   // passa da rede e, se ninguém bater, cai dentro da quadra
@@ -331,7 +337,7 @@ export class Match {
         else if (!out) { let ok = false; for (const e of g.evalSample(atC, pl.x, pl.z, lock, c.key)) if (e.clip === c.clip && e.dy <= 0.14 && e.need <= lim) { ok = true; break; } if (!ok) continue; }
       }
       Object.assign(b, { x: H.x, y: H.y, z: H.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null }); this.lastHitter = a.team; this.hitId++;
-      if (a.team === 1) { this.humanOwns = tg.human; if (this.partner && tg.human && Math.abs(C.x) < 1.8) g.call("Sua!", this.partner.o, 0); }   // a bola é da jogadora e vai para o meio: a parceira cede ("Sua!")
+      if (a.team === 1) { this.humanOwns = tg.human; if (this.partner && tg.human && Math.abs(C.x - MATCH.cx) < 1.8) g.call("Sua!", this.partner.o, 0); }   // a bola é da jogadora e vai para o meio: a parceira cede ("Sua!")
       return;
     }
     this.stats.soft++; this.aiError(a, H, serve, true);   // nada serviu (raro): bola simples no meio
@@ -339,8 +345,8 @@ export class Match {
 
   /** erro de uma IA: bola na rede (baixa) ou fora (longa/aberta); com `soft`, uma bola mansa no meio */
   private aiError(a: Ai, H: THREE.Vector3, serve: boolean, soft = false): void {
-    const pr = PROFILE[serve ? "saque" : "fh_din"], r = Math.random(); let lx = (Math.random() * 2 - 1) * 2, d = 2 + Math.random() * 3, T = pr.T, clear = true;   // d: distância da linha de fundo de quem recebe (< 0: fora)
-    if (!soft) { if (r < 0.35) { clear = false; T *= 0.6; } else if (r < 0.7) d = -(0.6 + Math.random() * 2.4); else lx = (Math.random() < 0.5 ? -1 : 1) * (4.4 + Math.random() * 1.4); }
+    const pr = PROFILE[serve ? "saque" : "fh_din"], r = Math.random(); let lx = MATCH.cx + (Math.random() * 2 - 1) * 2, d = 2 + Math.random() * 3, T = pr.T, clear = true;   // d: distância da linha de fundo de quem recebe (< 0: fora)
+    if (!soft) { if (r < 0.35) { clear = false; T *= 0.6; } else if (r < 0.7) d = -(0.6 + Math.random() * 2.4); else { const sg = Math.random() < 0.5 ? -1 : 1; lx = MATCH.cx + (MATCH.lines ? sg : 1) * (MATCH.wide + Math.random() * 1.4); } }   // erro aberto; no frescobol sempre para o lado da terra (do outro lado fica o mar)
     if (a.team === 1) this.humanOwns = true;
     this.launch(H, lx, a.team === 1 ? d : MATCH.len - d, T, a.team, clear);
   }
@@ -406,7 +412,7 @@ export class Match {
     if (a.plan) {
       if (g.time >= a.plan.startAt) { this.startSwing(a, a.plan); return; }
       this.moveTo(a, a.plan.x1, a.plan.z1, g.time - a.hitAt < lv.react ? 0 : cap, dt);
-    } else if (a.chase) this.moveTo(a, clamp(b.x, -4.6, 4.6), net - dir * clamp(dir * (net - b.z), 1, 11), g.time - a.hitAt < lv.react ? 0 : cap, dt);   // não alcança: corre atrás
+    } else if (a.chase) this.moveTo(a, MATCH.cx + clamp(b.x - MATCH.cx, -MATCH.runX, MATCH.runX), net - dir * clamp(dir * (net - b.z), 1, MATCH.back - 1), g.time - a.hitAt < lv.react ? 0 : cap, dt);   // não alcança: corre atrás
     else { const f = this.formation(a); this.moveTo(a, f.x, f.z, cap * 0.7, dt); }                                                                           // depois do golpe, deixando passar ou sem a bola: volta à formação
   }
 

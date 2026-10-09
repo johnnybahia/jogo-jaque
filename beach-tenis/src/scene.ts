@@ -4,15 +4,41 @@ import { Net } from "./net";
 import { buildSky, buildSea, buildRidge, buildSandGeometry, makeNoiseTexture, SHORE } from "./sky";
 
 export const COURT = { wallZ: 11, wallW: 6, wallH: 3 };
-export const MATCH = { netZ: 8, halfW: 4, len: 16 };   // quadra de partida (m): rede no meio de 16 m; lado da jogadora z ∈ [0, 8], da adversária [8, 16]; largura 8 m
 export const NET_H = 1.7;   // altura da rede de beach tênis (m): o risco da parede; a bola precisa bater na parede acima dele
+
+/** onde se joga a partida: a quadra (padrão) ou a faixa de areia molhada do frescobol. Lado da jogadora z ∈ [0, netZ], da adversária [netZ, len]; x é medido a partir de `cx` */
+export interface Venue {
+  id: "court" | "fresco";
+  cx: number;                  // centro em x (m)
+  netZ: number;                // linha central (a rede na quadra) e largura/comprimento do campo onde a bola vale:
+  halfW: number; len: number;
+  net: boolean;                // tem rede: a bola bate nela
+  netH: number;                // altura mínima da bola ao cruzar a linha central (rede de 1,70 m; no frescobol, só uma folga para a bola não passar rente à areia)
+  lines: boolean;              // tem linhas: bola fora vale como erro e a IA deixa passar a que vai cair fora
+  homeD: number | null;        // single: distância (m) da jogadora à linha central ao esperar o ponto; null = lugares de saque e recepção da quadra
+  homeDAi: number | null;      // a mesma para a adversária (null = igual à da jogadora)
+  depthAdj: number; depthK: number; errK: number; diffK: number;   // ajustes do frescobol (na quadra: 0, 1, 1, 1): quanto mais fundo (m) e quanto mais espalhada (×) cai a bola da jogadora, × a chance de erro da IA e × quão no limite do alcance ela coloca a bola
+  runX: number; aiRunX: number; aimAiX: number; aimPlX: number;   // limites laterais a partir de cx (m): corrida da jogadora e da IA, mira da IA e da jogadora
+  aimBack: number; wide: number;   // até onde (m, atrás da linha central) a IA mira e a que distância de cx cai o erro aberto da IA
+  zMin: number; back: number;  // até onde a jogadora recua (z mínimo) e a IA recua atrás da linha central (m)
+  strokes: string[] | null;    // golpes que valem (null = todos)
+}
+export const VENUES: Record<"court" | "fresco", Venue> = {
+  court: { id: "court", cx: 0, netZ: 8, halfW: 4, len: 16, net: true, netH: NET_H, lines: true, homeD: null, homeDAi: null, depthAdj: 0, depthK: 1, errK: 1, diffK: 1, runX: 4.6, aiRunX: 5.2, aimAiX: 3.8, aimPlX: 4.9, aimBack: 7.6, wide: 4.4, zMin: -5, back: 12, strokes: null },
+  // frescobol: de frente e paralelas à água (a jogadora a 4,5 m da linha central, a adversária a 6 m: 10,5 m entre as duas, contra ~15 m na quadra), no patamar de areia molhada (x de −25 a −17,8); sem rede, sem linhas, só forehand e backhand.
+  // homeDAi e diffK calibrados com o bot (nível médio ~84% de vitórias, difícil ~27%, como na quadra): com as duas a 4,5 m a bola da jogadora cai sempre em cima da adversária e o médio virava 48%
+  fresco: { id: "fresco", cx: -21.4, netZ: 8, halfW: 3, len: 16, net: false, netH: 0.6, lines: false, homeD: 4.5, homeDAi: 6.0, depthAdj: 0, depthK: 1, errK: 1, diffK: 0.85, runX: 3.6, aiRunX: 4.2, aimAiX: 2.8, aimPlX: 3.9, aimBack: 7.0, wide: 3.4, zMin: -1.5, back: 9.5, strokes: ["fh_din", "fh_est", "bh_din", "bh_est"] },
+};
+/** o campo em uso (mutável): quem lê `MATCH.netZ`, `MATCH.halfW`… sempre vê o campo da partida atual; `setVenue` troca */
+export const MATCH: Venue = { ...VENUES.court };
+export function setVenue(id: "court" | "fresco"): void { Object.assign(MATCH, VENUES[id]); }
 
 function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
   const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
   draw(cv.getContext("2d")!); const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
 }
 
-export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THREE.WebGLRenderer): { train: THREE.Group; atmosphere: Atmosphere; courtMask: { value: number } } {
+export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THREE.WebGLRenderer): { train: THREE.Group; atmosphere: Atmosphere; courtMask: { value: number }; shelfMask: { value: number } } {
   const train = new THREE.Group(); scene.add(train);
   renderer.toneMapping = THREE.NeutralToneMapping;   // preserva as cores de base (pele, roupas) e comprime os brilhos do sol
   const fog = new THREE.Fog(0xcfe8f5, 30, 190); scene.fog = fog;
@@ -35,16 +61,16 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
   const sandMat = new THREE.MeshStandardMaterial({ map: sand, roughness: 1 });
   // areia: (1) variação de tom em escala grande (a textura repete a cada 4 m e isso denunciava o azulejo), (2) molhada perto do mar: escurece e fica mais lisa,
   // (3) quadra rastelada: faixas paralelas à rede e um tom um pouco mais claro dentro de 16 × 8 m (+ margem), só na partida
-  const courtMask = { value: 0 };
+  const courtMask = { value: 0 }, shelfMask = { value: 0 };   // shelfMask: 1 no frescobol (a faixa de areia ao lado do mar fica molhada e firme)
   sandMat.onBeforeCompile = (sh) => {
-    sh.uniforms.uNoise = { value: noise }; sh.uniforms.uCourt = courtMask;
+    sh.uniforms.uNoise = { value: noise }; sh.uniforms.uCourt = courtMask; sh.uniforms.uShelf = shelfMask;
     sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWp;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvWp = (modelMatrix * vec4(transformed, 1.0)).xyz;");
-    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWp; uniform sampler2D uNoise; uniform float uCourt;")
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWp; uniform sampler2D uNoise; uniform float uCourt; uniform float uShelf;")
       .replace("#include <map_fragment>", `#include <map_fragment>
         vec2 wxz = vWp.xz;
         float macro = texture2D(uNoise, wxz * 0.011).r * 0.6 + texture2D(uNoise, wxz * 0.047 + 0.37).g * 0.4;
         diffuseColor.rgb *= 0.86 + 0.28 * macro;
-        float wet = 1.0 - smoothstep(${(SHORE.x0 - 8).toFixed(1)}, ${(SHORE.x0 + 2).toFixed(1)}, vWp.x); diffuseColor.rgb *= mix(1.0, 0.55, wet);
+        float wet = 1.0 - smoothstep(${(SHORE.x0 - 8).toFixed(1)}, ${(SHORE.x0 + 2).toFixed(1)}, vWp.x); wet = max(wet, uShelf * (1.0 - smoothstep(${(SHORE.x0 - 6).toFixed(1)}, ${(SHORE.x0 + 3).toFixed(1)}, vWp.x))); diffuseColor.rgb *= mix(1.0, 0.55, wet);
         float inX = 1.0 - smoothstep(4.9, 6.6, abs(wxz.x)); float inZ = smoothstep(-2.6, -0.9, wxz.y) * (1.0 - smoothstep(16.9, 18.6, wxz.y));
         float court = inX * inZ * uCourt; float rake = 0.5 + 0.5 * sin(wxz.y * 41.0 + 1.3 * sin(wxz.x * 2.3));
         diffuseColor.rgb *= 1.0 + court * (0.05 + 0.05 * (rake - 0.5));`)
@@ -80,7 +106,7 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
   const line = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55 });
   const l1 = new THREE.Mesh(new THREE.PlaneGeometry(0.06, COURT.wallZ + 4), line); l1.rotation.x = -Math.PI / 2; l1.position.set(0, 0.005, (COURT.wallZ - 4) / 2); train.add(l1);
   for (const x of [-4.5, 4.5]) { const l = l1.clone(); l.position.x = x; train.add(l); }
-  return { train, atmosphere, courtMask };
+  return { train, atmosphere, courtMask, shelfMask };
 }
 
 export function blobTexture(): THREE.CanvasTexture {
