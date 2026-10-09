@@ -43,7 +43,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
       hitFx.className = `k-${k} on`; clearTimeout(th); th = window.setTimeout(() => hitFx.classList.remove("on"), sub ? 1100 : 800); return;
     }
     toast.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; toast.appendChild(el); }
-    const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^(Cedo|Tarde|Longe|Sem fôlego)/.test(m) ? "miss" : /^Ponto!/.test(m) ? "win" : /^Ponto da/.test(m) ? "lose" : /^Saque/.test(m) ? "serve" : /^(ACE|SMASH|RALI DE)/.test(m) ? "big" : "";
+    const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^(Cedo|Tarde|Longe|Sem fôlego)/.test(m) ? "miss" : /^Ponto!/.test(m) ? "win" : /^Ponto da/.test(m) ? "lose" : /^Saque/.test(m) ? "serve" : /^(ACE|SMASH|RALI DE|NOVO RECORDE)/.test(m) ? "big" : "";
     toast.className = (k ? `k-${k} ` : "") + "on"; clearTimeout(tt); tt = window.setTimeout(() => toast.classList.remove("on"), ms ?? (sub ? 1300 : 900));
   };
   const sta = $("sta"), staSegs: HTMLElement[] = [];   // fôlego em 10 segmentos
@@ -61,7 +61,7 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     rallyEl.innerHTML = `<small>RALI</small><b>${game.rally}</b>${m ? "" : `<small class="rec">RECORDE ${game.record}</small>`}`; rallyEl.classList.toggle("idle", m && game.rally === 0);
     if (game.rally !== lastRally) { rallyEl.classList.remove("bump"); void rallyEl.offsetWidth; if (game.rally > 0) rallyEl.classList.add("bump"); lastRally = game.rally; }
     $("info").textContent = m ? game.info.split(" · erro")[0] : game.info;
-    $("serveBtn").hidden = m && (S.autoServe || game.match?.currentServer() !== null || game.match?.over !== null);   // na partida o SACAR só existe no saque manual e na vez dela
+    $("serveBtn").hidden = m && !game.match?.coopPause && (S.autoServe || game.match?.currentServer() !== null || game.match?.over !== null);   // na partida o SACAR só existe no saque manual e na vez dela (e no frescobol parado por falta de jogo)
   };
   game.onHud = upd; upd();
 

@@ -9,9 +9,10 @@ import { BALL_R, Ball, Sample, Tun, predict, solveShot } from "./physics";
 import { INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex, strokeOf } from "./strokes";
 import { S } from "./settings";
 import { fitCost } from "./fit";
+import { coopLevel } from "./coop";
 
-/** nível da adversária: velocidade máxima (m/s), tempo de reação (s), chance de errar, quão difícil ela coloca a bola (× alcance), esperteza (deixa passar bola fora) */
-export interface Level { id: string; label: string; speed: number; react: number; err: number; diff: number; smart: number; reach: number; }
+/** nível da adversária: velocidade máxima (m/s), tempo de reação (s), chance de errar, quão difícil ela coloca a bola (× alcance), esperteza (deixa passar bola fora); tf = tempo de voo dos golpes dela (s), só no Frescobol */
+export interface Level { id: string; label: string; speed: number; react: number; err: number; diff: number; smart: number; reach: number; tf?: [number, number]; }
 export const LEVELS: Record<string, Level> = {
   facil: { id: "facil", label: "Fácil", speed: 2.6, react: 0.4, err: 0.2, diff: 0.55, smart: 0.45, reach: 1.0 },
   medio: { id: "medio", label: "Médio", speed: 3.1, react: 0.25, err: 0.11, diff: 0.85, smart: 0.8, reach: 1.4 },
@@ -52,7 +53,9 @@ export class Match {
   score: Score; lastHitter: Side = 0; hitId = 0; private hits0 = 0; over: Side | null = null;
   stats = { plans: 0, noPlan: 0, letGo: 0, whiff: 0, miss: 0, hit: 0, err: 0, soft: 0, serves: 0 };   // diagnóstico da IA
   lastPick: { key: string; y: number; lat: number; ahead: number; shift: number } | null = null;        // diagnóstico: último golpe escolhido por uma IA e onde a bola chega em relação ao corpo dela
-  readonly doubles: boolean; readonly fresco = MATCH.id === "fresco"; readonly ais: Ai[]; readonly partner: Ai | null; readonly foes: Ai[];   // fresco: jogada na faixa de areia ao lado do mar (sem rede, sem linhas)
+  readonly doubles: boolean; readonly fresco = MATCH.id === "fresco"; readonly ais: Ai[]; readonly partner: Ai | null; readonly foes: Ai[];   // fresco: jogada cooperativa na faixa de areia ao lado do mar (sem rede, sem linhas, sem placar: o objetivo é a bola não cair)
+  /** frescobol: de quem é o saque do próximo rali (alterna a cada rali), quantos ralis seguidos a jogadora não rebateu nada (4 = ninguém jogando) e se o jogo espera o SACAR por isso */
+  coopTurn: Side = 0; coopIdle = 0; coopPause = false; private humanHits = 0;
   /** duplas: a bola que vem das adversárias é da jogadora (true) ou da parceira (false); a IA que bateu escolhe a quem manda */
   humanOwns = true; private pressure = 0;   // força da última bola da jogadora (0 a 1): a adversária que a recebe erra mais (PW.press)
   /** quem saca neste ponto, se for uma IA (a adversária ou a parceira); null = a jogadora */
@@ -67,7 +70,7 @@ export class Match {
     this.doubles = !!lineup.partner;
     const mk = (o: Opponent, team: Side, idx: 0 | 1, lv: Level): Ai => ({ o, team, idx, lvl: lv, plan: null, hitAt: 0, letGo: false, chase: false });
     this.partner = lineup.partner ? mk(lineup.partner, 0, 1, LEVELS.dificil) : null;   // a parceira é sempre difícil
-    this.foes = lineup.foes.map((o, i) => mk(o, 1, i as 0 | 1, lvl));
+    this.foes = lineup.foes.map((o, i) => mk(o, 1, i as 0 | 1, this.fresco ? coopLevel(lvl) : lvl));   // frescobol: a parceira, não uma adversária
     this.ais = [...(this.partner ? [this.partner] : []), ...this.foes];
     this.rotateServer();
   }
@@ -77,6 +80,9 @@ export class Match {
     return { server: s.server, games: [...s.games], sets: [...s.sets], points: [a, b], decisive: s.decisive, history: s.history.map((h) => `${h[0]}-${h[1]}`).join(" "), over: this.over, fmt: this.fmt.label, fmtId: this.fmt.id, level: this.lvl.label, levelId: this.lvl.id, multi: this.fmt.setsToWin > 1,
       names: d ? [`${NAMES[0][0]} e ${NAMES[0][1]}`, `${NAMES[1][0]} e ${NAMES[1][1]}`] : ["Jaqueline", "Adversária"], doubles: d, fresco: this.fresco };
   }
+
+  /** rebatidas do rali em andamento (todas as raquetadas na bola, das duas, o saque incluído) */
+  rallyHits(): number { return this.hitId - this.hits0; }
 
   // ---------- tiro por cima da rede ----------
   /** velocidade para a bola sair de `from`, passar por cima da rede e cair em (lx, lz) em ~T s; null se nenhum arco passa da fita */
@@ -120,6 +126,7 @@ export class Match {
 
   /** bola da jogadora: onde cai (mira + qualidade do tempo + força) e quanto voa (golpe + velocidade da bola nos ajustes) */
   playerShot(H: THREE.Vector3, clip: string, q: number, aim: number, serve = false, pw = 0): void {
+    if (!serve) this.humanHits++;
     const key = serve ? "saque" : strokeOf(clip)?.key ?? "fh_din", m = this.shotModel(key, q, serve ? 0 : pw, serve);
     const lx = MATCH.cx + clamp(aim * 3.0 + (Math.random() - 0.5) * 2 * m.spread, -MATCH.aimPlX, MATCH.aimPlX);
     let d = m.pr.d[0] + (m.pr.d[1] - m.pr.d[0] + m.hi) * Math.random() * MATCH.depthK + m.adj, T = m.T, clear = true;
@@ -138,16 +145,31 @@ export class Match {
   // ---------- pontos ----------
   /** o 1º toque na areia decide o ponto (bola viva): de quem foi o último golpe, em que lado caiu e se foi dentro das linhas */
   onSand(): void {
-    const b = this.g.ball, side: Side = b.z < MATCH.netZ ? 0 : 1, H = this.lastHitter, inside = inCourt(b.x, b.z), f = this.fresco;
+    const b = this.g.ball, side: Side = b.z < MATCH.netZ ? 0 : 1, H = this.lastHitter, inside = inCourt(b.x, b.z);
+    if (this.fresco) {   // frescobol: qualquer queda encerra o rali, sem culpa nem ponto; passou da beirada do patamar = água
+      if (b.x < SHELF_X) { this.g.splash(b.x, b.z); this.coopEnd("Na água!"); } else this.coopEnd(side === 0 ? "Caiu do seu lado" : "Caiu do lado dela");
+      return;
+    }
     if (side === H) this.pointEnd(H === 0 ? 1 : 0, H === 0 ? "Bola curta" : "Bola curta da adversária");
-    else if (inside) this.pointEnd(H, f ? (H === 0 ? "Caiu no chão da adversária" : "Caiu na areia") : H === 0 ? "Bola no chão da adversária" : "Quicou na areia", true);
-    else if (f && b.x < SHELF_X) { this.g.splash(b.x, b.z); this.pointEnd(H === 0 ? 1 : 0, H === 0 ? "Na água!" : "Na água (adversária)"); }   // frescobol: a bola passou da beirada do patamar
-    else this.pointEnd(H === 0 ? 1 : 0, f ? (H === 0 ? "Fora de alcance" : "Fora de alcance da adversária") : H === 0 ? "Fora!" : "Fora da adversária");
+    else if (inside) this.pointEnd(H, H === 0 ? "Bola no chão da adversária" : "Quicou na areia", true);
+    else this.pointEnd(H === 0 ? 1 : 0, H === 0 ? "Fora!" : "Fora da adversária");
   }
   onNet(): void { this.pointEnd(this.lastHitter === 0 ? 1 : 0, this.lastHitter === 0 ? "Na rede" : "Rede da adversária"); }
 
+  /** frescobol: a bola caiu. Ninguém marca ponto: fecha o rali (rebatidas e tempo), alterna o saque e confere se a jogadora está jogando
+   *  (4 ralis seguidos sem nenhuma rebatida dela além do saque = ninguém jogando: pausa até o SACAR, para o saque automático não rodar sozinho) */
+  private coopEnd(reason: string): void {
+    const g = this.g, n = this.hitId - this.hits0, secs = Math.max(0, g.time - g.serveTime), re = n >= 10 ? 2 : n < 4 ? 1 : 0;   // reação das duas: rali bom comemora, rali curtinho lamenta
+    this.hits0 = this.hitId; this.toss = null; this.humanOwns = true;
+    this.coopIdle = this.humanHits === 0 ? this.coopIdle + 1 : 0; this.humanHits = 0;
+    if (this.coopIdle >= 4) { this.coopPause = true; this.coopTurn = 0; } else this.coopTurn = this.coopTurn === 0 ? 1 : 0;
+    for (const a of this.ais) { const o = a.o; a.plan = null; a.letGo = false; a.chase = false; o.swing = null; o.reactT = 0; o.react = re; }
+    g.endRally(n, secs, reason, re);
+  }
+
   /** `landed`: a bola caiu dentro do campo sem ninguém devolver (ponto de quem bateu) */
   pointEnd(winner: Side, reason: string, landed = false): void {
+    if (this.fresco) { this.coopEnd(reason); return; }   // (só o tempo limite chega aqui no frescobol)
     const g = this.g, srv = this.score.server, r = this.score.pointWon(winner);
     const hits = this.hitId - this.hits0; this.hits0 = this.hitId;   // destaques: ace (saque sem devolução), smash que cai dentro, ralis longos
     const tag = landed && winner === srv && hits <= 1 ? "ACE!" : landed && hits >= 3 && (g.lastKey === "smash" || g.lastKey === "espeto") ? "SMASH!" : hits >= 16 ? `RALI DE ${hits}!` : undefined;
@@ -166,6 +188,7 @@ export class Match {
   private rotateServer(): void { const t = this.score.server; this.serverIdx = this.nextIdx[t]; this.nextIdx[t] ^= 1; }
   /** quem saca no ponto atual: null = a jogadora; senão a IA (a adversária do single, a que cabe à dupla adversária ou a parceira) */
   currentServer(): Ai | null {
+    if (this.fresco) return this.coopTurn === 0 ? null : this.foes[0];   // frescobol: o saque alterna a cada rali
     const t = this.score.server, idx = this.doubles ? this.serverIdx : 0;
     if (t === 0 && idx === 0) return null;
     return this.ais.find((a) => a.team === t && a.idx === idx) ?? this.foes[0];
@@ -212,7 +235,8 @@ export class Match {
   }
 
   // ---------- IA ----------
-  private cap(a: Ai): number { return a.lvl.speed * 1.15 * (S.stamina ? a.o.stamina.mul() : 1); }   // corrida de ataque à bola (um pouco acima do passo normal)
+  private sta(o: Opponent): number { return S.stamina && !this.fresco ? o.stamina.mul() : 1; }   // fôlego da IA (no frescobol a parceira não cansa: o rali não acaba por isso)
+  private cap(a: Ai): number { return a.lvl.speed * 1.15 * this.sta(a.o); }   // corrida de ataque à bola (um pouco acima do passo normal)
 
   private moveTo(a: Ai, tx: number, tz: number, sp: number, dt: number): void {
     const o = a.o, dx = tx - o.x, dz = tz - o.z, d = Math.hypot(dx, dz), want = d > 0.05 ? Math.min(sp, d * 4) : 0, k = Math.min(1, 9 * dt);
@@ -248,7 +272,7 @@ export class Match {
       }
     }
     if (!best) return null;
-    const stretch = clamp(best.need / cap, 0, 1), pErr = lv.err * MATCH.errK * (0.5 + 1.1 * stretch) + PW.press * this.pressure, r = Math.random();
+    const stretch = clamp(best.need / cap, 0, 1), pErr = lv.err * MATCH.errK * (0.5 + 1.1 * stretch) + (this.fresco ? 0 : PW.press * this.pressure), r = Math.random();   // frescobol: bola forte da jogadora não faz a parceira errar
     return { cost: best.cost, pick: { key: best.c.key, y: best.smp.y, lat: best.lat, ahead: best.ahead, shift: best.shift },
       plan: { arrival: g.time + best.smp.t, startAt: g.time + best.smp.t - 0.8 * best.c.prep / ts, x1: best.x1, z1: best.z1, clip: best.c.clip, key: best.c.key, kind: best.c.kind, whiff: r < pErr * 0.35, err: r >= pErr * 0.35 && r < pErr, stretch } };
   }
@@ -288,9 +312,10 @@ export class Match {
     if (!sw.serve && (sw.whiff || gap > 0.55)) { a.plan = null; if (sw.whiff) this.stats.whiff++; else this.stats.miss++; return; }
     if (!sw.serve) this.stats.hit++;   // errou a bola: ela segue e o ponto se decide na areia
     b.x = H.x; b.y = Math.max(H.y, BALL_R); b.z = H.z; g.lastKind = sw.serve ? "serve" : sw.kind; g.lastKey = sw.serve ? "saque" : strokeOf(sw.clip)?.key ?? ""; g.vfx.hit(H.x, H.y, H.z, 1, g.lastKind);
-    if (S.stamina) o.stamina.drain(sw.serve ? 0.02 : sw.kind === "over" ? 0.03 : 0.012);
+    if (S.stamina && !this.fresco) o.stamina.drain(sw.serve ? 0.02 : sw.kind === "over" ? 0.03 : 0.012);
     this.aiShot(a, sw.serve, p?.err ?? false); a.plan = null;
     if (sw.serve) { g.state = "rally"; g.rally = 0; g.serveTime = g.time; }
+    if (this.fresco) g.coopHit();
   }
 
   /** a jogadora saiu de campo (longe atrás da linha de fundo): as adversárias não a protegem mais — mandam a bola para o corredor dela, sem checar se dá para chegar, e a parceira não cobre.
@@ -315,7 +340,7 @@ export class Match {
     for (let at = 0; at < 40; at++) {
       const tg = foes[foes.length > 1 && (at % 4 === 3 || (at >= 24 && at % 2 === 1)) ? 1 : 0], ta = tg.ai, td = ta ? ta.o.dir : 1, tp: { x: number; z: number } = ta ? ta.o : out ? this.homeOfHuman() : pl;   // td: para onde o alvo olha
       const key = keys[(Math.random() * keys.length) | 0], list = g.candList(key); if (!list.length) continue;
-      const c = list[(Math.random() * list.length) | 0], Tf = serve ? rnd(1.25, 1.5) : rnd(0.95, 1.4) * (c.cy >= 1.6 ? 1.1 : 1);
+      const c = list[(Math.random() * list.length) | 0], Tf = serve ? rnd(1.25, 1.5) : rnd(lv.tf?.[0] ?? 0.95, lv.tf?.[1] ?? 1.4) * (c.cy >= 1.6 ? 1.1 : 1);
       let lim: number, shiftMax: number;
       if (ta) { lim = this.cap(ta) * (at < 28 ? 0.8 : 1); shiftMax = Math.min(3.4, ta.lvl.reach + lim * Math.max(0.15, Tf - ta.lvl.react - 0.6 * c.prep / ts - 0.1)); }
       else { lim = (at < 28 ? NEED_OK : NEED_RELAX) * mulP; shiftMax = Math.min(3.4, reachP + lim * Math.max(0.15, Tf - lock - c.prep / ts - 0.1)); }
@@ -355,7 +380,7 @@ export class Match {
   startServe(a: Ai): void {
     const g = this.g, o = a.o, R = o.rig, clip = SERVE_CLIP, act = R.actions.get(clip), cl = R.contactLocal.get(clip);
     this.humanOwns = true;
-    if (!act || !cl || !R.leftHand) { this.aiShot(a, true, false); g.state = "rally"; g.rally = 0; g.serveTime = g.time; return; }
+    if (!act || !cl || !R.leftHand) { this.aiShot(a, true, false); g.state = "rally"; g.rally = 0; g.serveTime = g.time; if (this.fresco) g.coopHit(); return; }
     const dur = R.durations.get(clip) ?? 2, ct = R.ct(clip, S.contactOffset), h = R.measureObj(clip, TOSS_REL, R.leftHand);
     o.swing = { clip, key: "saque", kind: "serve", s: S.timeScale, t: SERVE_START, startT: SERVE_START, contactT: ct, endT: Math.min(dur - 0.02, ct + SERVE_FOLLOW), duration: dur, x0: o.x, z0: o.z, x1: o.x, z1: o.z, contacted: false, serve: true, whiff: false };
     o.swingAct = act; o.vx = o.vz = 0;
@@ -377,20 +402,20 @@ export class Match {
   /** chamar todo quadro da partida (antes de a física andar) */
   update(dt: number): void {
     const g = this.g;
-    for (const a of this.ais) { const o = a.o; if (S.stamina) o.stamina.update(dt, Math.hypot(o.vx, o.vz), g.state !== "rally"); else o.stamina.reset(); o.reactT += dt; }
+    for (const a of this.ais) { const o = a.o; if (S.stamina && !this.fresco) o.stamina.update(dt, Math.hypot(o.vx, o.vz), g.state !== "rally"); else o.stamina.reset(); o.reactT += dt; }
     if (g.state === "serve" && this.serveAi) { this.serveStep(this.serveAi, dt); for (const a of this.ais) if (a !== this.serveAi) this.goHome(a, dt); return; }
     if (g.state === "rally") { this.rally(dt); return; }
     for (const a of this.ais) {   // fora do rali: acaba o golpe e volta ao lugar de saque (depois da reação)
       const o = a.o, sw = o.swing; if (sw) { sw.t += dt * sw.s; if (sw.t >= sw.endT) o.swing = null; }
       if (this.over !== null) {   // partida acabada: quem perdeu fica onde está; quem ganhou vai ao ponto de comemoração e dança (game.ts)
-        if (a.team === this.over && !o.swing && o.reactT > CELEB_AT && !o.dancer.active) { const h = this.celebrationSpot(a.team, a.idx); this.moveTo(a, h.x, h.z, 2.0 * (S.stamina ? o.stamina.mul() : 1), dt); } else o.vx = o.vz = 0;
+        if (a.team === this.over && !o.swing && o.reactT > CELEB_AT && !o.dancer.active) { const h = this.celebrationSpot(a.team, a.idx); this.moveTo(a, h.x, h.z, 2.0 * this.sta(o), dt); } else o.vx = o.vz = 0;
       } else if (!o.swing) this.goHome(a, dt);
     }
   }
 
   private goHome(a: Ai, dt: number): void {
     const g = this.g, o = a.o, h = this.homeOf(a.team, a.idx);
-    this.moveTo(a, h.x, h.z, g.state === "dead" && o.reactT < (o.react === 2 ? 1.9 : o.react === 1 ? 1.1 : 0.5) ? 0 : 2.0 * (S.stamina ? o.stamina.mul() : 1), dt);
+    this.moveTo(a, h.x, h.z, g.state === "dead" && o.reactT < (o.react === 2 ? 1.9 : o.react === 1 ? 1.1 : 0.5) ? 0 : 2.0 * this.sta(o), dt);
   }
 
   private rally(dt: number): void {

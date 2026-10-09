@@ -102,6 +102,10 @@ body.match #staWrap small{display:none}
 #score .dec{color:var(--sun2);opacity:1;animation:srv 1.1s ease-in-out infinite}
 #score .sc-sta{height:3px;border-radius:2px;background:#0009;margin:5px 0 0 12px;overflow:hidden}
 #score .sc-sta i{display:block;height:100%;width:100%;background:linear-gradient(90deg,var(--teal),#8ff0ff);transition:width .2s}
+/* frescobol (cooperativo): rebatidas e tempo no lugar dos games e pontos (o contador RALI do canto fica escondido); o rótulo de baixo cabe numa linha; o número fica laranja ao passar do recorde */
+body.coop #rally{display:none}
+#score .co-foot{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9.5px;letter-spacing:.06em}
+#score .sc-p.rec{background:linear-gradient(180deg,var(--sun2),var(--sun));color:#2a1200}
 
 /* fim da partida */
 #endCard{position:fixed;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;align-items:center;gap:3px;background:linear-gradient(#0b162000,rgba(6,20,32,.94) 38%);text-align:center;padding:52px 16px max(14px,env(safe-area-inset-bottom));pointer-events:none;animation:ecIn .6s ease both}
