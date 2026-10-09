@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { Rig, LOCO, SWINGS, prepOf } from "./rig";
-import { buildEnvironment, buildMatchCourt, blobTexture, COURT, MATCH, NET_H } from "./scene";
+import { buildEnvironment, buildMatchCourt, blobTexture, COURT, MATCH, NET_H, setVenue } from "./scene";
 import { S, loadRecord, saveRecord } from "./settings";
 import { Footprints } from "./footprints";
 import { Quality } from "./quality";
@@ -71,7 +71,7 @@ export class Game {
   wallFx: WallFx; dust: Dust;
   dancer = new Dancer(); danceWho: Side | null = null; private danced = false; private danceT0 = 0; private lastDance: string | null = null; private camPrev: { yaw: number; pitch: number; dist: number } | null = null; private camUser = -99; private oppPos = new THREE.Vector3();   // dança de vitória: quem dança, se já começou, a última sorteada, câmera de antes e último toque do usuário na câmera
   match: Match | null = null; onScore: (v: ScoreView | null) => void = () => {}; onMatchEnd: (winner: Side, v: ScoreView) => void = () => {}; private matchEnded = false;
-  looks = new Map<string, THREE.Texture>(); mode: "train" | "match" = "train"; doubles = false;   // visuais das outras atletas; single (1×1) ou duplas (2×2)
+  looks = new Map<string, THREE.Texture>(); mode: "train" | "match" = "train"; doubles = false; fresco = false;   // visuais das outras atletas; single (1×1) ou duplas (2×2)
   opp: Opponent | null = null; partner: Opponent | null = null; opp2: Opponent | null = null;   // a adversária (a Bia, única no single), a parceira da jogadora (Lari) e a 2ª adversária das duplas (Duda)
   private envTrain: THREE.Group; private envMatch: THREE.Group; private shadowMat: THREE.Material;   // treino na parede ou partida contra as adversárias
   fx: PoseFX | null = null; private fxBall = new THREE.Vector3();   // vida do personagem: olhar na bola, respiração, inclinação
@@ -95,13 +95,13 @@ export class Game {
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
   vfx!: Fx; lastKind = ""; lastKey = ""; private swingers = new Map<object, Swinger>(); shadowsOn = false; private post: Post | null = null; private postWanted = false; private postLoad: Promise<void> | null = null; private tipDone = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
-  readonly quality = new Quality(); atm!: Atmosphere; net!: Net; props!: Props; private courtMask!: { value: number };   // hora do dia: céu, mar, luz e névoa; rede com pano; adereços da praia
+  readonly quality = new Quality(); atm!: Atmosphere; net!: Net; props!: Props; private courtMask!: { value: number }; private shelfMask!: { value: number };   // hora do dia: céu, mar, luz e névoa; rede com pano; adereços da praia
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.quality.onChange = () => this.applyQuality(); this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.courtMask = env.courtMask; const court = buildMatchCourt(this.scene); this.envMatch = court.group; this.net = court.net; this.foot = new Footprints(this.scene);
+    const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.courtMask = env.courtMask; this.shelfMask = env.shelfMask; const court = buildMatchCourt(this.scene); this.envMatch = court.group; this.net = court.net; this.foot = new Footprints(this.scene);
     const bt = blobTexture(); this.props = new Props(bt); this.scene.add(this.props.group);
     const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false }); this.shadowMat = bm.clone();   // manchas: das atletas (esmaecem quando há sombra do sol) e da bola
     this.playerShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), this.shadowMat); this.playerShadow.rotation.x = -Math.PI / 2; this.playerShadow.position.y = 0.01; this.scene.add(this.playerShadow);
@@ -129,19 +129,23 @@ export class Game {
     this.setCamera(true); if (this.pendingCover) this.coverOn(true);
   }
 
-  /** treino na parede ou partida contra a adversária: troca cenário, física (parede × rede) e posições */
-  setMode(mode: "train" | "match"): void {
+  /** treino na parede ou partida contra a adversária (na quadra ou, no frescobol, na faixa de areia ao lado do mar): troca cenário, campo, física (parede × rede) e posições */
+  setMode(mode: "train" | "match", venue: "court" | "fresco" = "court"): void {
     if (mode === "train" && this.cover) { this.cover = false; this.camEdit = false; }   // quem sai da capa para o treino (ou para a galeria) não fica travado
     this.mode = mode; this.viewClose(); this.intent = null; this.stopDance(); this.calls = [];
     const m = mode === "match"; if (!m) { this.match = null; this.onScore(null); }
     if (!m) this.doubles = false;
-    this.envTrain.visible = !m; this.envMatch.visible = m; this.courtMask.value = m ? 1 : 0; this.opp?.setVisible(m); this.partner?.setVisible(m && this.doubles); this.opp2?.setVisible(m && this.doubles);
-    Object.assign(this.tun, m ? { wallZ: 99, net: { z: MATCH.netZ, h: NET_H, w: 2 * MATCH.halfW + 0.6 } } : { wallZ: COURT.wallZ, net: undefined });
+    setVenue(m ? venue : "court"); this.fresco = m && venue === "fresco"; this.resetCands();   // o campo decide a rede, as medidas e os golpes que valem
+    this.envTrain.visible = !m; this.envMatch.visible = m && !this.fresco; this.courtMask.value = m && !this.fresco ? 1 : 0; this.shelfMask.value = this.fresco ? 1 : 0; this.atm.focus(MATCH.cx, MATCH.netZ); this.opp?.setVisible(m); this.partner?.setVisible(m && this.doubles); this.opp2?.setVisible(m && this.doubles);
+    Object.assign(this.tun, m ? { wallZ: 99, net: MATCH.net ? { z: MATCH.netZ, h: NET_H, w: 2 * MATCH.halfW + 0.6 } : undefined } : { wallZ: COURT.wallZ, net: undefined });
     this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false;
-    this.rig.root.position.set(0, 0, 0); this.vx = this.vz = 0; this.foot.clear();
-    if (m) this.opp?.place(0, MATCH.len);
+    this.rig.root.position.set(MATCH.cx, 0, 0); this.vx = this.vz = 0; this.foot.clear();
+    if (m) this.opp?.place(MATCH.cx, MATCH.len);
     this.applyCam(); this.setCamera(true); this.onHud();
   }
+
+  /** a bola caiu na água (frescobol): respingo e a bola some */
+  splash(x: number, z: number): void { this.vfx.splash(x, z); this.ballMesh.visible = false; this.ballShadow.visible = false; }
 
   /** onde ela espera o ponto: no treino, o centro atrás da linha de fundo; na partida, depende de quem saca */
   homePos(): { x: number; z: number } { return this.match ? this.match.homeOfHuman() : HOME; }
@@ -155,14 +159,14 @@ export class Game {
   }
 
   /** começa uma partida (formato e nível das adversárias; "single" 1×1 ou "duplas" 2×2 com a parceira IA no nível difícil); quem saca primeiro é a jogadora */
-  startMatch(fmtId = "rapida", lvlId = "medio", mode: "single" | "duplas" = "single"): void {
+  startMatch(fmtId = "rapida", lvlId = "medio", mode: "single" | "duplas" | "frescobol" = "single"): void {
     if (!this.opp) return;
     if (this.cover) this.coverOn(false);   // sai da capa (o menu já fez isso; vale para quem chama direto)
     this.doubles = mode === "duplas"; if (this.doubles) this.ensureDoubles();
-    this.setMode("match"); this.matchEnded = false; this.danced = false;
+    this.setMode("match", mode === "frescobol" ? "fresco" : "court"); this.matchEnded = false; this.danced = false;
     this.match = new Match(this, { partner: this.doubles ? this.partner : null, foes: this.doubles && this.opp2 ? [this.opp, this.opp2] : [this.opp] }, FORMATS[fmtId] ?? FORMATS.rapida, LEVELS[lvlId] ?? LEVELS.medio, 0);
     this.stamina.reset(); for (const o of this.aiBodies()) o.stamina.reset();
-    if (this.doubles) { this.match.placeAll(); const h = this.match.homeOfHuman(); this.rig.root.position.set(h.x, 0, h.z); }   // duplas: cada uma no seu lugar de saque
+    if (this.doubles || this.fresco) { this.match.placeAll(); const h = this.match.homeOfHuman(); this.rig.root.position.set(h.x, 0, h.z); if (this.fresco) this.setCamera(true); }   // duplas e frescobol: cada uma no seu lugar
     this.onScore(this.match.view()); this.atm.setTarget(S.tod ? (S.tod - 1) / 2 : 0, true);   // a partida começa de manhã
     this.nextPoint(); this.onHud();
   }
@@ -353,12 +357,12 @@ export class Game {
   private pick(clip: string, fallback: string): string { return this.rig.contactLocal.has(clip) ? clip : fallback; }
 
   /** golpes do vídeo (sem o saque) com o que precisa para avaliar uma bola: preparo e ponto de contato; recalculado quando o rig é recalibrado */
-  private candAll: Cand[] | null = null; private candBy = new Map<string, Cand[]>();
+  private candAll: Cand[] | null = null; private candBy = new Map<string, Cand[]>(); private resetCands(): void { this.candAll = null; }
   candList(only?: string): Cand[] {
     if (!this.candAll) {
       this.candAll = []; this.candBy.clear();
       for (const st of STROKES) {
-        if (st.key === "saque") continue;
+        if (st.key === "saque" || (MATCH.strokes && !MATCH.strokes.includes(st.key))) continue;
         const kind = st.key.startsWith("band") ? "volley" : st.overhead ? "over" : "ground";
         for (const clip of st.clips) { const cl = this.rig.contactLocal.get(clip); if (cl) this.candAll.push({ clip, kind, key: st.key, prep: prepOf(clip), cx: cl.x, cy: cl.y, cz: cl.z }); }
       }
@@ -439,7 +443,7 @@ export class Game {
     for (const c of cands) {
       const prep = c.prep / ts; if (smp.t < prep * 0.55) continue;
       const dy = Math.abs(smp.y - c.cy); if (dy > DY_MAX) continue;
-      const x1 = smp.x - c.cx, z1 = smp.z - c.cz; if (x1 < -4.6 || x1 > 4.6 || z1 < -5 || z1 > (this.match ? MATCH.netZ - 0.7 : 6.5)) continue;
+      const x1 = smp.x - c.cx, z1 = smp.z - c.cz; if (x1 - MATCH.cx < -MATCH.runX || x1 - MATCH.cx > MATCH.runX || z1 < MATCH.zMin || z1 > (this.match ? MATCH.netZ - 0.7 : 6.5)) continue;
       const shift = Math.hypot(x1 - px, z1 - pz);
       out.push({ clip: c.clip, kind: c.kind, key: c.key, prep, x1, z1, shift, dy, need: Math.max(0, shift - reach) / Math.max(0.05, smp.t - lock - prep - 0.1) });
     }
@@ -467,7 +471,7 @@ export class Game {
       }
     }
     this.cue = keep ?? best ?? near; if (this.cue) this.lastCue = this.cue;
-    this.cueOut = !!this.match && !!lastS && lastS.y <= BALL_R + 0.03 && !inCourt(lastS.x, lastS.z) && lastS.z < MATCH.netZ;   // partida: a bola vai cair fora do meu lado (deixa passar e o ponto é meu)
+    this.cueOut = !!this.match && MATCH.lines && !!lastS && lastS.y <= BALL_R + 0.03 && !inCourt(lastS.x, lastS.z) && lastS.z < MATCH.netZ;   // partida: a bola vai cair fora do meu lado (deixa passar e o ponto é meu)
   }
 
   /** sorteia o próximo golpe do treino (varia: não repete os 2 últimos) entre os do vídeo, com mais peso nos golpes de base */
@@ -667,7 +671,7 @@ export class Game {
         if (this.match.over === 0 && !this.dancer.active && this.reactT > CELEB_AT) { const sp = this.match.celebrationSpot(0, 0), dx = sp.x - p.x, dz = sp.z - p.z, d = Math.hypot(dx, dz); if (d > 0.1) { const v = Math.min(WALK_HOME * sm, d * 2.5); tx = dx / d * v; tz = dz / d * v; } }
       }
       this.vx += (tx - this.vx) * k; this.vz += (tz - this.vz) * k;
-      p.x = THREE.MathUtils.clamp(p.x + this.vx * dt, -4.6, 4.6); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, -5, this.match ? MATCH.netZ - 0.7 : 6.5);
+      p.x = MATCH.cx + THREE.MathUtils.clamp(p.x + this.vx * dt - MATCH.cx, -MATCH.runX, MATCH.runX); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, MATCH.zMin, this.match ? MATCH.netZ - 0.7 : 6.5);
     }
 
     if (S.stamina) {
@@ -782,7 +786,7 @@ export class Game {
     const dn = this.danceWho !== null, cv = this.cover, p = cv ? this.coverFocus : dn ? this.danceFocus(this.oppPos) : this.rig.root.position, { yaw, pitch, dist } = this.cam; const k = snap ? 1 : Math.min(1, 8 * dt);
     const sy = Math.sin(yaw), cy = Math.cos(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
     const lead = this.viewer || dn || cv ? 0 : 4 * (1 - Math.min(1, pitch / 1.2));           // olha à frente da jogadora; de cima, olha para ela (na dança e na galeria, para quem está no centro)
-    const bx = p.x * (this.viewer || dn || cv ? 1 : 0.6);                                    // segue 60% do deslocamento lateral (na galeria e na dança, centrada nela)
+    const bx = MATCH.cx + (p.x - MATCH.cx) * (this.viewer || dn || cv ? 1 : 0.6);                                    // segue 60% do deslocamento lateral (na galeria e na dança, centrada nela)
     const ty = dn ? (this.camera.aspect < 1 ? 0.4 : 0.95) : 1.1;                       // na dança olha mais para baixo: ela fica na parte de cima da tela, acima do cartão de fim
     const tp = new THREE.Vector3(bx - sy * cp * dist, ty + sp * dist, p.z - cy * cp * dist);
     this.camera.position.lerp(tp, k);

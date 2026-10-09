@@ -163,6 +163,7 @@ body.match #staWrap small{display:none}
 .cv-row select option{color:#000}
 .cv-row2{display:flex;gap:8px;width:100%}.cv-row2 button{flex:1;padding:11px 4px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px}
 .cv-row2 .ic{width:16px;height:16px}
+@media (max-width:400px){.cv-row2{gap:6px}.cv-row2 button{padding:11px 2px;font-size:12px;min-width:0}.cv-row2 .ic{display:none}}   /* 4 botões (Treino, Frescobol, Golpes, Ranking) numa linha só: em tela estreita ficam sem o ícone */
 .cv-foot{margin:2px 0 0;font:700 12px var(--f-ui);opacity:.66;display:flex;align-items:center;justify-content:center;gap:5px}
 .cv-foot .ic{width:13px;height:13px;fill:var(--coral);stroke:none}
 .cv-hint{margin:-2px 0 2px;font:700 12px/1.3 var(--f-ui);opacity:.84;text-align:center}

@@ -128,6 +128,12 @@ export class Fx {
     for (let i = 0; i < Math.round(6 * this.level); i++) { const a = rnd(0, 6.28); this.mix.spawn(x, 0.08, z, Math.cos(a) * 0.9, rnd(0.2, 0.9), Math.sin(a) * 0.9, rnd(0.8, 1.3), 0.35, 1.0, 0.98, 0.9, 0.72, -0.2, 1.4, 0.5); }
   }
 
+  /** a bola caiu na água em (x, z) (frescobol): gotas claras que sobem e caem e um anel */
+  splash(x: number, z: number): void {
+    for (let i = 0, n = Math.round(26 * this.level); i < n; i++) { const a = rnd(0, 6.28), h = rnd(0.3, 1.5); this.mix.spawn(x, -0.2, z, Math.cos(a) * h, rnd(2.4, 5), Math.sin(a) * h, rnd(0.5, 0.9), 0.07, 0.035, 0.85, 0.96, 1, 9.8, 0.4); }
+    this.ring(x, -0.2, z, 0.55, 1.1, new THREE.Color(0.85, 0.97, 1));
+  }
+
   /** confete: `n` pedaços sobre (x, z), espalhados em `spread` m, caindo devagar por `dur` s */
   confetti(x: number, z: number, n: number, spread = 2.5, dur = 4.2): void {
     const pal: [number, number, number][] = [[1, 0.42, 0.05], [0.85, 0.96, 0.23], [1, 1, 1], [1, 0.35, 0.55], [0.3, 0.7, 1], [1, 0.82, 0.2], [0.35, 0.9, 0.7]];

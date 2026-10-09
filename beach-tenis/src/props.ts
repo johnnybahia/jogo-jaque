@@ -88,7 +88,8 @@ export class Props {
       this.palms.push(im); this.group.add(im);
     }
     // ---- guarda-sóis e toalhas ----
-    const us: [number, number][] = [[-13.5, 3], [-15.5, 10.5], [-12.8, 18.5], [-16.6, 24], [-18.2, 15], [-19, 33], [-17.5, 41]];
+    // (nenhum guarda-sol dentro da faixa do frescobol: x de −25,6 a −17,2 e z de −1,5 a 17,5)
+    const us: [number, number][] = [[-13.5, 3], [-15.5, 10.5], [-12.8, 18.5], [-16.6, 24], [-15.2, 15.5], [-19, 33], [-17.5, 41]];
     const accents = [0xe5402f, 0x1f78d1, 0xf2b01e, 0x1fae7d, 0xe0508f, 0xff7a1a, 0x7a52d6];
     us.forEach(([x, z], i) => this.umbSpots.push({ x, z, ry: R() * Math.PI * 2, s: 0.9 + R() * 0.25, tint: i }));
     const stripe = (mat: THREE.MeshStandardMaterial, k: number) => {
