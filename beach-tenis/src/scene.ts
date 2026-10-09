@@ -25,9 +25,9 @@ export interface Venue {
 }
 export const VENUES: Record<"court" | "fresco", Venue> = {
   court: { id: "court", cx: 0, netZ: 8, halfW: 4, len: 16, net: true, netH: NET_H, lines: true, homeD: null, homeDAi: null, depthAdj: 0, depthK: 1, errK: 1, diffK: 1, runX: 4.6, aiRunX: 5.2, aimAiX: 3.8, aimPlX: 4.9, aimBack: 7.6, wide: 4.4, zMin: -5, back: 12, strokes: null },
-  // frescobol: de frente e paralelas à água (a jogadora a 4,5 m da linha central, a adversária a 6 m: 10,5 m entre as duas, contra ~15 m na quadra), no patamar de areia molhada (x de −25 a −17,8); sem rede, sem linhas, só forehand e backhand.
-  // homeDAi e diffK calibrados com o bot (nível médio ~84% de vitórias, difícil ~27%, como na quadra): com as duas a 4,5 m a bola da jogadora cai sempre em cima da adversária e o médio virava 48%
-  fresco: { id: "fresco", cx: -21.4, netZ: 8, halfW: 3, len: 16, net: false, netH: 0.6, lines: false, homeD: 4.5, homeDAi: 6.0, depthAdj: 0, depthK: 1, errK: 1, diffK: 0.85, runX: 3.6, aiRunX: 4.2, aimAiX: 2.8, aimPlX: 3.9, aimBack: 7.0, wide: 3.4, zMin: -1.5, back: 9.5, strokes: ["fh_din", "fh_est", "bh_din", "bh_est"] },
+  // frescobol (cooperativo): de frente e paralelas à água, cada uma a 4,5 m da linha central (9 m entre as duas, contra ~15 m na quadra), no patamar de areia molhada (x de −25 a −17,8); sem rede, sem linhas, só forehand e backhand.
+  // a dificuldade vem do nível da parceira (coop.ts), não de errK/diffK
+  fresco: { id: "fresco", cx: -21.4, netZ: 8, halfW: 3, len: 16, net: false, netH: 0.6, lines: false, homeD: 4.5, homeDAi: null, depthAdj: 0, depthK: 1, errK: 1, diffK: 1, runX: 3.6, aiRunX: 4.2, aimAiX: 2.8, aimPlX: 3.9, aimBack: 7.0, wide: 3.4, zMin: -1.5, back: 9.5, strokes: ["fh_din", "fh_est", "bh_din", "bh_est"] },
 };
 /** o campo em uso (mutável): quem lê `MATCH.netZ`, `MATCH.halfW`… sempre vê o campo da partida atual; `setVenue` troca */
 export const MATCH: Venue = { ...VENUES.court };

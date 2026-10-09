@@ -3,6 +3,7 @@ import type { ScoreView } from "./match";
 import { S } from "./settings";
 import { CAMS, CAM_COUNT, CAM_NAMES } from "./camera";
 import { initCamEdit } from "./camedit";
+import { coopKey, fmtTime } from "./coop";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const RANK_KEY = "bt.ranking.v1", PREF_KEY = "bt.matchpref.v1";
@@ -44,9 +45,10 @@ export function initMenu(game: Game, openGallery: () => void): void {
   const close = (): void => { game.coverOn(false); cover.hidden = true; document.body.classList.remove("menu"); rankBox.hidden = true; };
   const renderRank = (): void => {
     const r = loadRank(), tab = (p: string) => LEVELS.map((l) => `<tr><td class="l">${LEVEL_TXT[l]}</td><td>${r.wins[p + l] ?? 0}</td><td>${r.losses[p + l] ?? 0}</td></tr>`).join("");
-    const hasD = LEVELS.some((l) => (r.wins["d_" + l] ?? 0) + (r.losses["d_" + l] ?? 0) > 0), hasF = LEVELS.some((l) => (r.wins["f_" + l] ?? 0) + (r.losses["f_" + l] ?? 0) > 0);
-    const last = r.last.map((x) => `<tr><td class="l">${x.won ? "🏆" : "·"} ${x.f ? "Frescobol " : x.d ? "Duplas " : ""}${LEVEL_TXT[x.lvl] ?? x.lvl}</td><td>${FMT_TXT[x.fmt] ?? x.fmt}</td><td>${x.score}</td></tr>`).join("");
-    rankBox.innerHTML = `<table><tr><th class="l">Single</th><th>Vitórias</th><th>Derrotas</th></tr>${tab("")}</table>${hasD ? `<table><tr><th class="l">Duplas</th><th>Vitórias</th><th>Derrotas</th></tr>${tab("d_")}</table>` : ""}${hasF ? `<table><tr><th class="l">Frescobol</th><th>Vitórias</th><th>Derrotas</th></tr>${tab("f_")}</table>` : ""}${last ? `<h3>Últimas partidas</h3><table>${last}</table>` : "<h3>Ainda sem partidas</h3>"}`;
+    const hasD = LEVELS.some((l) => (r.wins["d_" + l] ?? 0) + (r.losses["d_" + l] ?? 0) > 0);
+    const last = r.last.filter((x) => !x.f).map((x) => `<tr><td class="l">${x.won ? "🏆" : "·"} ${x.d ? "Duplas " : ""}${LEVEL_TXT[x.lvl] ?? x.lvl}</td><td>${FMT_TXT[x.fmt] ?? x.fmt}</td><td>${x.score}</td></tr>`).join("");   // (as partidas do frescobol competitivo, de antes de ele ser cooperativo, não aparecem mais)
+    const co = LEVELS.flatMap((l) => [false, true].map((a) => ({ txt: LEVEL_TXT[l] + (a ? " · auto" : ""), b: game.coop.best[coopKey(l, a)] }))).filter((x) => x.b && x.b.hits > 0);   // frescobol: recorde de rebatidas e de tempo por nível (e com Golpe automático, à parte)
+    rankBox.innerHTML = `<table><tr><th class="l">Single</th><th>Vitórias</th><th>Derrotas</th></tr>${tab("")}</table>${hasD ? `<table><tr><th class="l">Duplas</th><th>Vitórias</th><th>Derrotas</th></tr>${tab("d_")}</table>` : ""}${co.length ? `<table><tr><th class="l">Frescobol</th><th>Rebatidas</th><th>Tempo</th></tr>${co.map((x) => `<tr><td class="l">${x.txt}</td><td>${x.b.hits}</td><td>${fmtTime(x.b.secs)}</td></tr>`).join("")}</table>` : ""}${last ? `<h3>Últimas partidas</h3><table>${last}</table>` : co.length ? "" : "<h3>Ainda sem partidas</h3>"}`;
   };
 
   $("cvMatch").onclick = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify({ fmt: fmtSel.value, lvl: lvlSel.value, mode: modeSel.value })); } catch { /* sem storage */ } close(); game.startMatch(fmtSel.value, lvlSel.value, modeSel.value === "duplas" ? "duplas" : "single"); };
@@ -62,14 +64,30 @@ export function initMenu(game: Game, openGallery: () => void): void {
   // placar: nomes, saque (●), games (e sets), pontos do game; no 40–40 o ponto seguinte decide
   const staOpp = document.createElement("div"); staOpp.className = "sc-sta"; staOpp.innerHTML = "<i></i>";
   let prevSc = "";
+  /** frescobol (cooperativo): no lugar do placar, as rebatidas e o tempo do rali e, embaixo, o recorde do nível; atualiza a cada rebatida (game.onCoop) e a cada 250 ms (o relógio) */
+  let coHits: HTMLElement | null = null, coTime: HTMLElement | null = null, coFoot: HTMLElement | null = null, coBase = "", coKey = "";
+  const updCoop = (): void => {
+    if (!game.fresco || !coHits || !coTime || !coFoot) return;
+    const n = String(game.coopHits()), t = fmtTime(game.coopSecs()), nw = game.coopNew, rc = game.coopBest().hits, f = nw ? "Novo recorde!" : rc > 0 ? `${coBase} · Rec. ${rc}` : coBase, k = `${n}|${t}|${f}`;
+    if (k === coKey) return; coKey = k;
+    if (coHits.textContent !== n) { const row = coHits.parentElement!; coHits.textContent = n; row.classList.remove("pop"); void row.offsetWidth; row.classList.add("pop"); }
+    coTime.textContent = t; coFoot.textContent = f; coFoot.classList.toggle("dec", nw); coHits.classList.toggle("rec", nw);
+  };
+  const renderCoop = (v: ScoreView): void => {
+    score.innerHTML = `<div class="sc-row you"><span class="sc-name">Rebatidas</span><span class="sc-p">0</span></div><div class="sc-row opp"><span class="sc-name">Tempo</span><span class="sc-p">0:00</span></div><div class="sc-foot co-foot"></div>`;
+    const el = score.querySelectorAll<HTMLElement>(".sc-p, .sc-foot"); coHits = el[0]; coTime = el[1]; coFoot = el[2];
+    coBase = `Frescobol · ${v.level}${S.auto ? " · auto" : ""}`; coKey = ""; updCoop();
+  };
+  game.onCoop = updCoop;
   game.onScore = (v) => {
-    document.body.classList.toggle("match", !!v); score.hidden = !v; if (!v) { prevSc = ""; return; }
+    document.body.classList.toggle("match", !!v); document.body.classList.toggle("coop", !!v?.fresco); score.hidden = !v; if (!v) { prevSc = ""; return; }
+    if (v.fresco) { renderCoop(v); return; }
     const now = [0, 1].map((i) => `${v.sets[i]}/${v.games[i]}/${v.points[i]}`), was = prevSc ? prevSc.split("|") : now; prevSc = now.join("|");
     const row = (cls: string, name: string, side: 0 | 1) => `<div class="sc-row ${cls}${now[side] !== was[side] ? " pop" : ""}"><span class="sc-name">${name}</span><span class="sc-srv${v.server === side ? " on" : ""}"></span>${v.multi ? `<span class="sc-s">${v.sets[side]}</span>` : ""}<span class="sc-g">${v.games[side]}</span><span class="sc-p">${v.points[side]}</span></div>`;
     score.innerHTML = `${row("you", v.names[0], 0)}${row("opp", v.names[1], 1)}<div class="sc-foot ${v.decisive ? "dec" : ""}">${v.decisive ? "PONTO DECISIVO" : `${v.fresco ? "Frescobol · " : v.doubles ? "Duplas · " : ""}${FMT_TXT[v.fmtId] ?? v.fmt} · ${v.level}`}</div>`;
     score.appendChild(staOpp);
   };
-  setInterval(() => { if (game.match && game.opp) { const f = game.aiBodies().filter((o) => o.dir === -1); (staOpp.firstElementChild as HTMLElement).style.width = `${Math.round(100 * f.reduce((a, o) => a + o.stamina.value, 0) / Math.max(1, f.length))}%`; } }, 250);
+  setInterval(() => { updCoop(); if (game.match && game.opp) { const f = game.aiBodies().filter((o) => o.dir === -1); (staOpp.firstElementChild as HTMLElement).style.width = `${Math.round(100 * f.reduce((a, o) => a + o.stamina.value, 0) / Math.max(1, f.length))}%`; } }, 250);
 
   game.onMatchEnd = (winner, v) => {
     recordResult(v, winner === 0);

@@ -4,6 +4,7 @@ import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.j
 import { Rig, LOCO, SWINGS, prepOf } from "./rig";
 import { buildEnvironment, buildMatchCourt, blobTexture, COURT, MATCH, NET_H, setVenue } from "./scene";
 import { S, loadRecord, saveRecord } from "./settings";
+import { CoopBest, coopKey, fmtTime, loadCoop, saveCoop } from "./coop";
 import { Footprints } from "./footprints";
 import { Quality } from "./quality";
 import type { Atmosphere } from "./atmosphere";
@@ -71,6 +72,8 @@ export class Game {
   wallFx: WallFx; dust: Dust;
   dancer = new Dancer(); danceWho: Side | null = null; private danced = false; private danceT0 = 0; private lastDance: string | null = null; private camPrev: { yaw: number; pitch: number; dist: number } | null = null; private camUser = -99; private oppPos = new THREE.Vector3();   // dança de vitória: quem dança, se já começou, a última sorteada, câmera de antes e último toque do usuário na câmera
   match: Match | null = null; onScore: (v: ScoreView | null) => void = () => {}; onMatchEnd: (winner: Side, v: ScoreView) => void = () => {}; private matchEnded = false;
+  /** frescobol cooperativo: recordes guardados (nível × Golpe automático), o último rali (o HUD o mostra até o próximo saque), se o rali em andamento já passou do recorde (coopGoal = o recorde de quando ele começou) e o aviso para o HUD */
+  coop = loadCoop(); coopLast = { hits: 0, secs: 0 }; coopNew = false; private coopGoal = 0; onCoop: () => void = () => {};
   looks = new Map<string, THREE.Texture>(); mode: "train" | "match" = "train"; doubles = false; fresco = false;   // visuais das outras atletas; single (1×1) ou duplas (2×2)
   opp: Opponent | null = null; partner: Opponent | null = null; opp2: Opponent | null = null;   // a adversária (a Bia, única no single), a parceira da jogadora (Lari) e a 2ª adversária das duplas (Duda)
   private envTrain: THREE.Group; private envMatch: THREE.Group; private shadowMat: THREE.Material;   // treino na parede ou partida contra as adversárias
@@ -165,12 +168,44 @@ export class Game {
     this.doubles = mode === "duplas"; if (this.doubles) this.ensureDoubles();
     this.setMode("match", mode === "frescobol" ? "fresco" : "court"); this.matchEnded = false; this.danced = false;
     this.match = new Match(this, { partner: this.doubles ? this.partner : null, foes: this.doubles && this.opp2 ? [this.opp, this.opp2] : [this.opp] }, FORMATS[fmtId] ?? FORMATS.rapida, LEVELS[lvlId] ?? LEVELS.medio, 0);
-    this.stamina.reset(); for (const o of this.aiBodies()) o.stamina.reset();
+    this.stamina.reset(); for (const o of this.aiBodies()) o.stamina.reset(); this.coopLast = { hits: 0, secs: 0 }; this.coopNew = false;
     if (this.doubles || this.fresco) { this.match.placeAll(); const h = this.match.homeOfHuman(); this.rig.root.position.set(h.x, 0, h.z); if (this.fresco) this.setCamera(true); }   // duplas e frescobol: cada uma no seu lugar
     this.onScore(this.match.view()); this.atm.setTarget(S.tod ? (S.tod - 1) / 2 : 0, true);   // a partida começa de manhã
     this.nextPoint(); this.onHud();
   }
-  endMatch(): void { this.setMode("train"); }
+  endMatch(): void { this.coopFlush(); this.setMode("train"); }
+
+  // ---------- frescobol cooperativo: rebatidas, tempo e recordes ----------
+  /** o recorde da combinação atual (nível × Golpe automático); cria o registro se ainda não existe */
+  coopBest(): CoopBest { const k = coopKey(this.match?.lvl.id ?? "medio", S.auto); return this.coop.best[k] ?? (this.coop.best[k] = { hits: 0, secs: 0 }); }
+  /** para o HUD: rebatidas e tempo do rali em andamento; depois que a bola cai, os do último rali até o próximo saque */
+  coopHits(): number { return this.state === "dead" ? this.coopLast.hits : this.match?.rallyHits() ?? 0; }
+  coopSecs(): number { return this.state === "rally" ? this.time - this.serveTime : this.state === "dead" ? this.coopLast.secs : 0; }
+  private coopConfetti(n: number): void { for (const q of [this.rig.root.position, this.opp?.rig.root.position]) if (q) this.vfx.confetti(q.x, q.z, n, 2.2, 3.6); }
+  /** a cada rebatida (da jogadora ou da parceira): guarda o recorde de rebatidas na hora (sair no meio do rali não o perde) e, ao passar de um recorde de verdade (5 ou mais), comemora */
+  coopHit(): void {
+    const m = this.match; if (!m || !this.fresco) return;
+    const n = m.rallyHits(), b = this.coopBest();
+    if (n > b.hits) {
+      if (!this.coopNew && this.coopGoal >= 5) { this.coopNew = true; this.onToast("NOVO RECORDE!", `${n} rebatidas`, 1500); this.coopConfetti(26); }
+      b.hits = n; saveCoop(this.coop);
+    }
+    this.onCoop();
+  }
+  /** a bola caiu (chamado pelo Match): fecha o rali com o tempo e o recorde, avisa e as duas reagem; o próximo começa sozinho (ou espera o SACAR, se ninguém estiver jogando) */
+  endRally(n: number, secs: number, reason: string, re: number): void {
+    if (!this.match || (this.state !== "rally" && this.state !== "serve")) return;
+    if (this.swing && !this.swing.contacted) this.swing = null;
+    this.state = "dead"; this.ball.ret = null; this.react = re; this.reactT = 0; this.deadTimer = [1.6, 1.9, 2.6][re]; this.walkAt = [0.7, 1.1, 1.9][re];
+    this.stamina.restore(0.25);
+    const b = this.coopBest(), time = n >= 5 && b.secs >= 10 && secs > b.secs, rec = this.coopNew || time; if (secs > b.secs) b.secs = secs;
+    this.coopLast = { hits: n, secs }; saveCoop(this.coop);
+    this.onToast(rec ? "NOVO RECORDE!" : reason === "Na água!" ? reason : "Caiu!", `${n} rebatida${n === 1 ? "" : "s"} · ${fmtTime(secs)}${time && !this.coopNew ? " · recorde de tempo" : ""}`, rec ? 2400 : 1700);
+    if (rec) this.coopConfetti(n >= 20 ? 70 : 40);
+    this.emit("rally", { hits: n, secs: +secs.toFixed(1), reason, record: rec }); this.coopNew = false; this.onCoop(); this.onHud();
+  }
+  /** sair no meio de um rali também guarda o tempo dele */
+  private coopFlush(): void { if (this.fresco && this.match && this.state === "rally") { const b = this.coopBest(), s = this.time - this.serveTime; if (s > b.secs) { b.secs = s; saveCoop(this.coop); } } }
 
   /** quem dança quando o time `team` vence: a jogadora (e a parceira, nas duplas) ou as adversárias */
   private dancersOf(team: Side): { rig: Rig; dancer: Dancer; body: Opponent | null }[] {
@@ -219,6 +254,7 @@ export class Game {
     const m = this.match; if (!m) return;
     this.state = "wait"; this.react = 0; this.ballMesh.visible = false; this.ballShadow.visible = false; this.cue = null; this.lastCue = null; this.onScore(m.view());
     if (m.over !== null) return;
+    if (this.fresco) { this.coopNew = false; this.coopGoal = this.coopBest().hits; this.onCoop(); if (m.coopPause) { this.onToast("Toque em SACAR para continuar", "os últimos ralis ficaram sem nenhuma rebatida sua"); this.onHud(); return; } }   // frescobol: ninguém jogando = espera o SACAR (o automático não segue sozinho)
     const sv = m.currentServer(); if (!sv) { if (S.autoServe) this.serve(); else this.onToast("Sua vez de sacar", "toque em SACAR"); } else m.startServe(sv);   // a IA que saca (adversária ou parceira) saca sozinha
   }
 
@@ -323,6 +359,7 @@ export class Game {
     if (this.match) {   // partida: só no começo do ponto e do lugar de saque (antes dava para sacar de qualquer lugar, até no meio do rali, insistindo no botão)
       if (this.state !== "wait") return;
       const h = this.homePos(), q = this.rig.root.position; if (Math.hypot(q.x - h.x, q.z - h.z) > SERVE_AT) { this.onToast("Indo para o lugar de saque…"); return; }
+      if (this.match.coopPause) { this.match.coopPause = false; this.match.coopIdle = 0; this.onHud(); }   // frescobol: voltou a jogar
     }
     this.viewClose();
     if (this.swing && !this.swing.contacted) this.swing = null;
@@ -595,7 +632,7 @@ export class Game {
     this.lastKind = sw.kind; this.lastKey = strokeOf(sw.clip)?.key ?? "";
     if (sw.kind === "serve") {   // saque: a bola vai para a parede e o rali começa
       if (this.match) this.match.playerShot(H, sw.clip, 1, this.aimOf(sw), true); else this.launch(THREE.MathUtils.clamp(H.x + (Math.random() - 0.5) * 2.4, -2.5, 2.5), S.ballSpeed * 1.05, false);
-      this.vfx.hit(H.x, H.y, H.z, 1, "serve"); this.state = "rally"; this.rally = 0; this.serveTime = this.time; this.lastCue = null; this.onToast("Saque!"); this.onHud(); return;
+      this.vfx.hit(H.x, H.y, H.z, 1, "serve"); this.state = "rally"; this.rally = 0; this.serveTime = this.time; this.lastCue = null; this.onToast("Saque!"); this.coopHit(); this.onHud(); return;
     }
     const q = qualityOf(sw.err);   // 2 perfeito, 1 bom, 0 fraco (cedo/tarde)
     this.vfx.hit(H.x, H.y, H.z, q, sw.kind);
@@ -607,7 +644,8 @@ export class Game {
     const speed = S.ballSpeed * (smash ? 1.25 : sw.kind === "volley" ? 0.9 : 1) * (q === 2 ? 1.12 : q === 1 ? 1 : 0.86);
     const st = strokeOf(sw.clip); if (st) { this.recent.push(st.key); if (this.recent.length > 4) this.recent.shift(); }   // antes de lançar: a próxima bola não repete este golpe
     if (this.match) this.match.playerShot(H, sw.clip, q, aim, false, pw); else this.launch(tx, speed, smash);
-    this.rally++; if (q === 2) this.perfects++; if (this.rally > this.record) { this.record = this.rally; saveRecord(this.record); this.recBeaten = this.rally >= 6; }
+    this.rally++; if (q === 2) this.perfects++; if (!this.fresco && this.rally > this.record) { this.record = this.rally; saveRecord(this.record); this.recBeaten = this.rally >= 6; }   // (o recorde do frescobol é outro: coopHit; este é o do treino)
+    this.coopHit();
     this.onToast(q === 2 ? "Perfeito!" : q === 1 ? "Bom!" : sw.err > 0 ? "Cedo!" : "Tarde!", st ? (pw >= 0.6 ? `${st.label} · forte` : st.label) : undefined); this.onHud(); this.tipForce();
   }
 
@@ -682,7 +720,7 @@ export class Game {
     if (this.state === "rally") {
       this.advance(dt);
       const b = this.ball;
-      if (this.match) { if (this.time - this.serveTime > 120 && this.state === "rally") this.match.pointEnd(1, "Tempo"); }
+      if (this.match) { if (this.time - this.serveTime > (this.fresco ? 3600 : 120) && this.state === "rally") this.match.pointEnd(1, "Tempo"); }   // frescobol: rali longo é o objetivo; 1 h é só um teto de segurança
       else if (b.z < p.z - 2.5 && b.vz < 0) this.kill("Passou");
       else if (this.time - this.serveTime > 180) this.kill("Tempo");
       if (this.state === "rally") {

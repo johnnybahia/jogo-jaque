@@ -6,6 +6,7 @@ import { initPwa, applyUpdate } from "./pwa";
 import { loadSettings, S } from "./settings";
 import { PW } from "./match";
 import { MATCH } from "./scene";
+import { COOP } from "./coop";
 
 declare const __APP_VERSION__: string;
 declare global { interface Window { __game?: Game } }
@@ -16,7 +17,7 @@ async function boot(): Promise<void> {
   const ui = initUI(game, __APP_VERSION__);
   initPwa((reg) => ui.showUpdate(() => applyUpdate(reg)));
   await game.init(import.meta.env.BASE_URL);
-  window.__game = game; (window as unknown as Record<string, unknown>).__S = S; (window as unknown as Record<string, unknown>).__PW = PW; (window as unknown as Record<string, unknown>).__MATCH = MATCH;   // ganchos de teste
+  window.__game = game; (window as unknown as Record<string, unknown>).__S = S; (window as unknown as Record<string, unknown>).__PW = PW; (window as unknown as Record<string, unknown>).__MATCH = MATCH; (window as unknown as Record<string, unknown>).__COOP = COOP;   // ganchos de teste
   const ld = document.querySelector("#loading small"); if (ld) ld.textContent = "Preparando os gráficos…";
   await game.warmUp();   // carrega o pós-processamento e compila tudo antes de abrir (nada compila no meio do jogo); não muda a qualidade
   document.getElementById("loading")!.remove();
