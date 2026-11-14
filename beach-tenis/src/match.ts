@@ -8,7 +8,7 @@ import { SHELF_X } from "./sky";
 import { BALL_R, Ball, CALM, Sample, Tun, fly, predict, solveShot } from "./physics";
 import { INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex, strokeOf } from "./strokes";
 import { S } from "./settings";
-import { fitCost } from "./fit";
+import { fitCost, FIT } from "./fit";
 import { coopLevel } from "./coop";
 
 /** nível da adversária: velocidade máxima (m/s), tempo de reação (s), chance de errar, quão difícil ela coloca a bola (× alcance), esperteza (deixa passar bola fora); tf = tempo de voo dos golpes dela (s), só no Frescobol */
@@ -35,6 +35,10 @@ export const inCourt = (x: number, z: number): boolean => Math.abs(x - MATCH.cx)
 /** s depois do último ponto da partida em que as vencedoras começam a ir ao ponto de comemoração */
 export const CELEB_AT = 0.7;
 const PLAYER_WIND = 0.6;
+/** execução do golpe da jogadora: janelas de tempo (s, as mesmas do "Perfeito"/"Bom" de game.ts), desvio lateral (m) e do ângulo de saída (rad) por unidade de erro além do "Perfeito" (1 = limite do "Bom") */
+const TIME_PERF = 0.07, TIME_GOOD = 0.16, PULL = 1.2, ELEV = 0.12, LONG = 2.5;   // LONG: m a mais de profundidade da bola batida tarde (face aberta)
+const OVERHEAD = new Set(["smash", "gancho", "veronica", "espeto"]);   // por cima da cabeça: sem versão lob/curtinha
+interface PShot { lx: number; d: number; T: number; elev: number; rx: number; rz: number; re: number; kind: "" | "drop" | "lob"; }
 const OUT_Z = 2.5;   // a jogadora mais de 2,5 m atrás da linha de fundo está fora de jogo (nenhuma bola que dá para pegar vem de lá)
 const LANE = 2.0, BLOCK = 0.8;   // centro de cada corredor da dupla (m) e quanto a parceira acompanha, em bloco, o deslocamento lateral da outra ("corda invisível")
 const NAMES: [[string, string], [string, string]] = [["Jaqueline", "Lari"], ["Bia", "Duda"]];
@@ -87,7 +91,7 @@ export class Match {
 
   // ---------- tiro por cima da rede ----------
   /** velocidade para a bola sair de `from`, passar por cima da rede e cair em (lx, lz) em ~T s; null se nenhum arco passa da fita */
-  private shotOver(from: THREE.Vector3, lx: number, lz: number, T0: number, clear: boolean, comp: boolean): { v: { vx: number; vy: number; vz: number }; T: number } | null {
+  private shotOver(from: { x: number; y: number; z: number }, lx: number, lz: number, T0: number, clear: boolean, comp: boolean): { v: { vx: number; vy: number; vz: number }; T: number } | null {
     for (let k = 0; k < 9; k++) {
       const T = T0 + 0.1 * k, v = solveShot(from, { x: lx, y: BALL_R, z: lz }, T, comp ? this.g.tun.wind ?? CALM : this.humanWind());   // comp: quem bate compensa o vento (as IAs); a jogadora só em parte — o vento leva a bola dela (o marcador de queda mostra para onde)
       if (Math.hypot(v.vx, v.vy, v.vz) > 32) continue;
@@ -107,12 +111,15 @@ export class Match {
   private humanWind(): { x: number; z: number } { return { x: 0, z: PLAYER_WIND * (this.g.tun.wind?.z ?? 0) }; }
 
   /** lança a bola de `from` para (lx, lz): side 0 = a jogadora e a parceira, 1 = as adversárias; clear = confere a folga da rede (false: deixa bater na rede) */
-  private launch(from: THREE.Vector3, lx: number, lz: number, T: number, side: Side, clear = true, comp = true): void {
+  private arc(from: { x: number; y: number; z: number }, lx: number, lz: number, T: number, clear: boolean, comp: boolean): { vx: number; vy: number; vz: number } {
     const net = MATCH.netZ;
     let r = this.shotOver(from, lx, lz, T, clear, comp);
     for (const k of [0.75, 0.5, 0.3]) if (!r) r = this.shotOver(from, lx, net + (lz - net) * k, T, clear, comp);   // não passa: encurta a bola
     if (!r) r = this.shotOver(from, lx, lz, T, false, comp);
-    const v = r!.v, b = this.g.ball;
+    return r!.v;
+  }
+  private launch(from: THREE.Vector3, lx: number, lz: number, T: number, side: Side, clear = true, comp = true): void {
+    const v = this.arc(from, lx, lz, T, clear, comp), b = this.g.ball;
     Object.assign(b, { x: from.x, y: from.y, z: from.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null });
     this.lastHitter = side; this.hitId++;
   }
@@ -128,27 +135,48 @@ export class Match {
     return { pr, spread, adj, hi, T };
   }
 
-  /** bola da jogadora: onde cai (mira + qualidade do tempo + força) e quanto voa (golpe + velocidade da bola nos ajustes) */
-  playerShot(H: THREE.Vector3, clip: string, q: number, aim: number, serve = false, pw = 0): void {
-    if (!serve) this.humanHits++;
-    const key = serve ? "saque" : strokeOf(clip)?.key ?? "fh_din", m = this.shotModel(key, q, serve ? 0 : pw, serve);
-    const lx = MATCH.cx + clamp(aim * 3.0 + (Math.random() - 0.5) * 2 * m.spread, -MATCH.aimPlX, MATCH.aimPlX);
-    let d = m.pr.d[0] + (m.pr.d[1] - m.pr.d[0] + m.hi) * Math.random() * MATCH.depthK + m.adj, T = m.T, clear = true;
-    if (!serve && q === 0) { const r = Math.random(); if (r < 0.2) { clear = false; T *= 0.6; } else if (r < 0.4) d += 3.2; }   // tempo ruim: bola na rede ou longa
-    this.pressure = serve ? 0 : pw; this.launch(H, lx, MATCH.netZ + clamp(d, 1, 9.5), T, 0, clear, false);
+  /** Golpe da jogadora, como num jogo de tênis: ela escolhe a COLOCAÇÃO (direcional na hora do contato: lado = mira, para cima = funda, para baixo = curta; nos golpes de base, até o fim vira lob ou curtinha)
+   *  e o TEMPO do aperto decide a execução, sem sorteio de "rede ou fora": cedo fecha a face (a bola sai mais baixa e cruzada: curta ou na rede), tarde abre (mais alta e para o lado da raquete: longa ou fora).
+   *  Dentro da janela do "Perfeito" não há desvio. Sobra um erro pequeno, que cresce com a força e com a corrida até a bola. `err` = s de erro do aperto (+ cedo), `ay` = direcional para a frente (−1 a 1), `stretch` = quanto ela teve de se esticar (0 a 1) */
+  private playerPlan(key: string, q: number, err: number, aim: number, ay: number, pw: number, stretch: number): PShot {
+    const m = this.shotModel(key, q, pw, false), u = err / (TIME_GOOD * S.timing), ux = Math.sign(u) * Math.max(0, Math.abs(u) - TIME_PERF / TIME_GOOD), sd = FIT[key]?.side ?? 0;
+    const d0 = m.pr.d[0] + m.adj, d1 = m.pr.d[1] + m.adj + m.hi, c = (d0 + d1) / 2, half = (d1 - d0) / 2 * MATCH.depthK, a = Math.abs(ay) < 0.35 ? 0 : ay, can = !OVERHEAD.has(key) && m.pr.T < 1.5 && MATCH.net;
+    let d = c + a * half * 1.2, rz = half * 0.45, T = m.T, kind: PShot["kind"] = "";
+    if (can && a <= -0.6) { d = 2.0; rz = 0.4; T = m.T * 1.5; kind = "drop"; } else if (can && a >= 0.6) { d = 6.4; rz = 0.5; T = m.T * 1.45; kind = "lob"; }   // curtinha: bola mansa e alta (dá tempo de a adversária rápida chegar)
+    d += LONG * Math.max(0, -ux);
+    return { lx: MATCH.cx + clamp(aim * 3.0, -MATCH.aimPlX, MATCH.aimPlX) + Math.sign(sd) * PULL * ux, d, T, elev: ux > 0 ? -ELEV * ux : -0.02 * ux, rx: m.spread * 0.6, rz, re: 0.015 * (1 + 1.5 * pw + stretch), kind };   // a direita dela é −x: forehand cedo cruza para +x
   }
 
-  /** marcador de queda: onde a bola da jogadora deve cair com esta mira, tempo e força (centro, meia-largura e meia-profundidade da dispersão, m) e a fração do sorteio que fica dentro das linhas */
-  preview(clip: string, q: number, aim: number, pw: number): { x: number; z: number; rx: number; rz: number; inside: number } {
-    const m = this.shotModel(strokeOf(clip)?.key ?? "fh_din", q, pw, false), x = MATCH.cx + clamp(aim * 3.0, -MATCH.aimPlX, MATCH.aimPlX), d0 = m.pr.d[0] + m.adj, d1 = MATCH.depthK === 1 ? m.pr.d[1] + m.adj + m.hi : d0 + (m.pr.d[1] - m.pr.d[0] + m.hi) * MATCH.depthK;
-    const frac = (lo: number, hi: number, a: number, b: number): number => hi > lo ? clamp((Math.min(hi, b) - Math.max(lo, a)) / (hi - lo), 0, 1) : lo >= a && lo <= b ? 1 : 0;
-    const lat = frac(x - m.spread, x + m.spread, MATCH.cx - MATCH.halfW - 0.05, MATCH.cx + MATCH.halfW + 0.05), dep = frac(d0, d1, -99, MATCH.len - MATCH.netZ + 0.05);
-    const w = this.g.tun.wind ?? CALM, zc = MATCH.netZ + clamp((d0 + d1) / 2, 1, 9.5); let wx = x, wz = zc;
-    if (w.x || w.z) {   // vento: a bola sai mirada no ponto sem vento e é levada; o marcador mostra onde ela cai de verdade (mesmo integrador da física)
-      const p = this.g.rig.root.position, f = { x: p.x, y: 1.2, z: p.z + 0.5 }, v = solveShot(f, { x, y: BALL_R, z: zc }, m.T, this.humanWind()); let y = f.y; wx = f.x; wz = f.z;
-      for (let i = 0; i < 720 && y > BALL_R; i++) { fly(v, 1 / 120, w); wx += v.vx / 120; y += v.vy / 120; wz += v.vz / 120; }
+  /** velocidade de saída do plano `p` a partir de `from`: arco que passa da rede até o alvo e, por cima, o desvio de execução (ângulo de saída); nx, nz, ne = sorteios de −1 a 1 (0 = o centro, para o marcador) */
+  private playerVel(from: { x: number; y: number; z: number }, p: PShot, nx: number, nz: number, ne: number): { vx: number; vy: number; vz: number } {
+    const v = this.arc(from, p.lx + nx * p.rx, MATCH.netZ + clamp(p.d + nz * p.rz, 0.8, 9.5), p.T, true, false);
+    const vh = Math.hypot(v.vx, v.vz), sp = Math.hypot(vh, v.vy), ang = Math.atan2(v.vy, vh) + p.elev + ne * p.re, k = sp * Math.cos(ang) / Math.max(1e-3, vh);
+    return { vx: v.vx * k, vy: sp * Math.sin(ang), vz: v.vz * k };
+  }
+
+  /** bola da jogadora. Saque: como sempre (mira + sorteio de profundidade). Rebatida: colocação + execução (ver `playerPlan`); devolve "drop" ou "lob" quando o golpe saiu assim */
+  playerShot(H: THREE.Vector3, clip: string, q: number, aim: number, serve = false, pw = 0, o: { err: number; ay: number; stretch: number } = { err: 0, ay: 0, stretch: 0 }): string {
+    if (serve) {
+      const m = this.shotModel("saque", q, 0, true), lx = MATCH.cx + clamp(aim * 3.0 + (Math.random() - 0.5) * 2 * m.spread, -MATCH.aimPlX, MATCH.aimPlX), d = m.pr.d[0] + (m.pr.d[1] - m.pr.d[0]) * Math.random() * MATCH.depthK + m.adj;
+      this.pressure = 0; this.launch(H, lx, MATCH.netZ + clamp(d, 1, 9.5), m.T, 0, true, false); return "";
     }
-    return { x: wx, z: wz, rx: m.spread, rz: (d1 - d0) / 2, inside: lat * dep * (q === 0 ? 0.6 : 1) };
+    this.humanHits++;
+    const p = this.playerPlan(strokeOf(clip)?.key ?? "fh_din", q, o.err, aim, o.ay, pw, o.stretch), r3 = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+    const v = this.playerVel(H, p, Math.random() * 2 - 1, Math.random() * 2 - 1, r3());
+    Object.assign(this.g.ball, { x: H.x, y: H.y, z: H.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null });
+    this.pressure = pw; this.lastHitter = 0; this.hitId++; return p.kind;
+  }
+
+  /** marcador de queda: onde a bola da jogadora cai DE VERDADE com esta colocação, este tempo de aperto (já dado), a força de agora e o vento — o mesmo cálculo do golpe, sem o sorteio, voando na mesma física.
+   *  (x1, z1) = onde ela bate; rx/rz = margem de erro (m); inside = fração que fica dentro das linhas (0 se o centro bate na rede) */
+  preview(clip: string, q: number, err: number, aim: number, ay: number, pw: number, x1: number, z1: number): { x: number; z: number; rx: number; rz: number; inside: number } {
+    const g = this.g, c = g.rig.contactLocal.get(clip), from = { x: x1 + (c?.x ?? 0), y: c?.y ?? 1.2, z: z1 + (c?.z ?? 0.5) };
+    const p = this.playerPlan(strokeOf(clip)?.key ?? "fh_din", q, err, aim, ay, pw, 0), v = this.playerVel(from, p, 0, 0, 0);
+    const smp = predict({ ...from, ...v, bounces: 0, wallHits: 0, ret: null }, g.tun, 4, 1 / 120, true), last = smp[smp.length - 1];
+    const x = last?.x ?? p.lx, z = last?.z ?? MATCH.netZ + p.d, netted = MATCH.net && z < MATCH.netZ + 0.25, rz = p.rz + 0.35;
+    const frac = (lo: number, hi: number, a: number, b: number): number => hi > lo ? clamp((Math.min(hi, b) - Math.max(lo, a)) / (hi - lo), 0, 1) : lo >= a && lo <= b ? 1 : 0;
+    const lat = frac(x - p.rx, x + p.rx, MATCH.cx - MATCH.halfW - 0.05, MATCH.cx + MATCH.halfW + 0.05), dep = frac(z - rz, z + rz, MATCH.netZ, MATCH.len + 0.05);
+    return { x, z, rx: p.rx, rz, inside: netted ? 0 : MATCH.lines ? lat * dep : 1 };
   }
 
   // ---------- pontos ----------
