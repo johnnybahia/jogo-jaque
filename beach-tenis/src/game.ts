@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { Rig, LOCO, SWINGS, prepOf } from "./rig";
-import { buildEnvironment, buildMatchCourt, blobTexture, COURT, MATCH, NET_H, setVenue } from "./scene";
+import { buildEnvironment, buildMatchCourt, blobTexture, COURT, MATCH, NET_H, SERVE_ZONE, setVenue } from "./scene";
 import { S, loadRecord, saveRecord } from "./settings";
 import { CoopBest, coopKey, fmtTime, loadCoop, saveCoop } from "./coop";
 import { Footprints } from "./footprints";
@@ -91,7 +91,7 @@ export class Game {
   /** vento da partida na quadra (m/s, mundo): sorteado no começo e com uma rajada leve a cada ponto, nunca no meio do rali (o marcador já mostrado continuaria valendo); treino e frescobol não têm (os recordes ficam comparáveis) */
   wind: Wind = { x: 0, z: 0 }; private windBase = { sp: 0, dir: 0 }; private windSent = ""; onWind: (v: { speed: number; deg: number } | null) => void = () => {};
   /** clima da partida na quadra: 0 limpo, 1 nublado, 2 chuva (areia molhada: corrida 10% mais lenta para todas) */
-  sky = 0; rain!: Rain; arena!: Arena;
+  sky = 0; rain!: Rain; arena!: Arena; private useCourt!: (halfW: number) => Net; private swapped = false;
   wetMul(): number { return this.sky === 2 ? 0.9 : 1; }
   readonly sfx = new Sfx(); camHeld = false; private slideVx = 0; private slideVz = 0;   // som e vibração; dedo na câmera agora; velocidade dos passos de ajuste durante o golpe
   vx = 0; vz = 0; phase = 0; idlePhase = 0; alt = 0;
@@ -115,7 +115,7 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.quality.onChange = () => this.applyQuality(); this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.courtMask = env.courtMask; this.shelfMask = env.shelfMask; const court = buildMatchCourt(this.scene); this.envMatch = court.group; this.net = court.net; this.arena = new Arena(); this.arena.group.visible = S.arena; this.envMatch.add(this.arena.group); this.foot = new Footprints(this.scene);
+    const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.courtMask = env.courtMask; this.shelfMask = env.shelfMask; const court = buildMatchCourt(this.scene); this.envMatch = court.group; this.net = court.net; this.useCourt = court.use; this.arena = new Arena(); this.arena.group.visible = S.arena; this.envMatch.add(this.arena.group); this.foot = new Footprints(this.scene);
     const bt = blobTexture(); this.props = new Props(bt); this.scene.add(this.props.group);
     const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false }); this.shadowMat = bm.clone();   // manchas: das atletas (esmaecem quando há sombra do sol) e da bola
     this.playerShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), this.shadowMat); this.playerShadow.rotation.x = -Math.PI / 2; this.playerShadow.position.y = 0.01; this.scene.add(this.playerShadow);
@@ -149,7 +149,7 @@ export class Game {
     this.mode = mode; this.viewClose(); this.intent = null; this.stopDance(); this.calls = [];
     const m = mode === "match"; if (!m) { this.match = null; this.onScore(null); }
     if (!m) this.doubles = false;
-    setVenue(m ? venue : "court"); this.fresco = m && venue === "fresco"; this.resetCands();   // o campo decide a rede, as medidas e os golpes que valem
+    setVenue(!m ? "court" : venue === "fresco" ? "fresco" : this.doubles ? "court" : "single"); this.fresco = m && venue === "fresco"; this.resetCands(); if (!this.fresco) this.net = this.useCourt(MATCH.halfW);   // simples: quadra de 4,5 m; duplas: 8 m   // o campo decide a rede, as medidas e os golpes que valem
     this.envTrain.visible = !m; this.envMatch.visible = m && !this.fresco; this.courtMask.value = m && !this.fresco ? 1 : 0; this.shelfMask.value = this.fresco ? 1 : 0; this.atm.focus(MATCH.cx, MATCH.netZ); this.opp?.setVisible(m); this.partner?.setVisible(m && this.doubles); this.opp2?.setVisible(m && this.doubles);
     Object.assign(this.tun, m ? { wallZ: 99, net: MATCH.net ? { z: MATCH.netZ, h: NET_H, w: 2 * MATCH.halfW + 0.6 } : undefined } : { wallZ: COURT.wallZ, net: undefined });
     this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false; this.windBase.sp = 0; this.setWind(0, 0); this.setSky(0);
@@ -173,6 +173,8 @@ export class Game {
     else if (wt) this.onToast(w >= 3.5 ? "Vento forte" : "Brisa", `${w.toFixed(1).replace(".", ",")} m/s · a bola é levada; mire contra o vento`, 2600);
     else if (this.sky === 1) this.onToast("Dia nublado", undefined, 1600);
   }
+  /** troca de lado (regra 11: games ímpares; no tie-break, depois do 1º ponto e a cada 4). A câmera fica sempre atrás da jogadora, então o que muda de verdade é o vento, que passa a soprar do outro lado */
+  changeSides(): void { this.windBase.dir += Math.PI; this.swapped = true; }
   setSky(k: number, snap = false): void { this.sky = k; this.atm.setWeather(k > 0 ? 1 : 0, k === 2 ? 1 : 0, snap); this.rain.target = k === 2 ? 1 : 0; this.sfx.rain(k === 2 ? 1 : 0); }
   /** entre os pontos: o vento varia um pouco (±15% e ±12°) em torno do sorteado */
   private gust(): void {
@@ -292,6 +294,7 @@ export class Game {
     this.state = "wait"; this.react = 0; this.ballMesh.visible = false; this.ballShadow.visible = false; this.cue = null; this.lastCue = null; this.onScore(m.view());
     if (m.over !== null) return;
     if (this.windBase.sp > 0 && m.rallyHits() === 0 && this.time > 0) this.gust();
+    if (this.swapped) { this.swapped = false; if (this.windBase.sp > 0) this.onToast("Troca de lado", "o vento agora sopra do outro lado", 1800); }
     if (this.fresco) { this.coopNew = false; this.coopGoal = this.coopBest().hits; this.onCoop(); if (m.coopPause) { this.onToast("Toque em SACAR para continuar", "os últimos ralis ficaram sem nenhuma rebatida sua"); this.onHud(); return; } }   // frescobol: ninguém jogando = espera o SACAR (o automático não segue sozinho)
     const sv = m.currentServer(); if (!sv) { if (S.autoServe) this.serve(); else this.onToast("Sua vez de sacar", "toque em SACAR"); } else m.startServe(sv);   // a IA que saca (adversária ou parceira) saca sozinha
   }
@@ -307,7 +310,7 @@ export class Game {
     this.react = r.match !== undefined ? (winner === 0 ? 0 : 1) : winner === 0 ? (this.rally >= 8 || r.game !== undefined ? 2 : 0) : this.rally < 3 ? 1 : 0; this.reactT = 0; this.deadTimer = [1.6, 1.9, 2.6][this.react]; this.walkAt = [0.7, 1.1, 1.9][this.react];   // fim da partida: quem perde suspira e quem ganha dança
     this.stamina.restore(0.25); for (const o of this.aiBodies()) o.stamina.restore(0.25);
     const v = m.view(), pts = `${v.points[0]} – ${v.points[1]}`;
-    const more = r.match !== undefined ? "Fim da partida" : r.set !== undefined ? "Set!" : r.game !== undefined ? `Game ${v.games[0]}–${v.games[1]}` : `${pts} · rali ${this.rally}`;
+    const more = r.match !== undefined ? "Fim da partida" : r.set !== undefined ? (m.score.inTiebreak ? "Set! Match tie-break até 10" : "Set!") : r.game !== undefined ? `Game ${v.games[0]}–${v.games[1]}` : `${pts} · rali ${this.rally}`;
     const who = winner === 0 ? "Ponto!" : "Ponto da adversária";
     if (tag) this.onToast(tag, `${who} · ${more}`); else this.onToast(who, `${reason} · ${more}`);
     if (winner === 0) { const t = this.dancersOf(0); let cx = 0, cz = 0; for (const m of t) { cx += m.rig.root.position.x; cz += m.rig.root.position.z; } this.vfx.confetti(cx / t.length, cz / t.length, r.game !== undefined ? 70 : 26, 2.2, 3.4); }
@@ -761,7 +764,7 @@ export class Game {
         if (this.match.over === 0 && !this.dancer.active && this.reactT > CELEB_AT) { const sp = this.match.celebrationSpot(0, 0), dx = sp.x - p.x, dz = sp.z - p.z, d = Math.hypot(dx, dz); if (d > 0.1) { const v = Math.min(WALK_HOME * sm, d * 2.5); tx = dx / d * v; tz = dz / d * v; } }
       }
       this.vx += (tx - this.vx) * k; this.vz += (tz - this.vz) * k;
-      p.x = MATCH.cx + THREE.MathUtils.clamp(p.x + this.vx * dt - MATCH.cx, -MATCH.runX, MATCH.runX); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, MATCH.zMin, this.match ? MATCH.netZ - 0.7 : 6.5);
+      p.x = MATCH.cx + THREE.MathUtils.clamp(p.x + this.vx * dt - MATCH.cx, -MATCH.runX, MATCH.runX); p.z = THREE.MathUtils.clamp(p.z + this.vz * dt, MATCH.zMin, this.match ? MATCH.netZ - (this.state === "rally" || !MATCH.net ? 0.7 : SERVE_ZONE) : 6.5);   // antes de a bola entrar em jogo ninguém pisa na zona proibida (3 m da rede)
     }
 
     if (S.stamina) {

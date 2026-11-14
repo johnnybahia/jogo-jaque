@@ -9,6 +9,7 @@ export const NET_H = 1.7;   // altura da rede de beach tênis (m): o risco da pa
 /** onde se joga a partida: a quadra (padrão) ou a faixa de areia molhada do frescobol. Lado da jogadora z ∈ [0, netZ], da adversária [netZ, len]; x é medido a partir de `cx` */
 export interface Venue {
   id: "court" | "fresco";
+  aimK: number;                // m que a mira lateral cheia da jogadora desloca a bola a partir do centro
   cx: number;                  // centro em x (m)
   netZ: number;                // linha central (a rede na quadra) e largura/comprimento do campo onde a bola vale:
   halfW: number; len: number;
@@ -23,15 +24,19 @@ export interface Venue {
   zMin: number; back: number;  // até onde a jogadora recua (z mínimo) e a IA recua atrás da linha central (m)
   strokes: string[] | null;    // golpes que valem (null = todos)
 }
-export const VENUES: Record<"court" | "fresco", Venue> = {
-  court: { id: "court", cx: 0, netZ: 8, halfW: 4, len: 16, net: true, netH: NET_H, lines: true, homeD: null, homeDAi: null, depthAdj: 0, depthK: 1, errK: 1, diffK: 1, runX: 4.6, aiRunX: 5.2, aimAiX: 3.8, aimPlX: 4.9, aimBack: 7.6, wide: 4.4, zMin: -5, back: 12, strokes: null },
+/** m da rede em que ninguém, além de quem saca, pode pisar até a bola entrar em jogo (Zona Proibida de Retorno de Serviço, regras 9 e 24k). O anexo com a medida não veio no PDF da CBBT 2026; 3 m é a medida da ITF */
+export const SERVE_ZONE = 3;
+export const VENUES: Record<"court" | "fresco" | "single", Venue> = {
+  // quadra oficial (CBBT 2026, regra 1): 16 m × 8 m nas duplas e 16 m × 4,5 m no simples; rede a 1,70 m
+  single: { id: "court", aimK: 1.7, cx: 0, netZ: 8, halfW: 2.25, len: 16, net: true, netH: NET_H, lines: true, homeD: null, homeDAi: null, depthAdj: 0, depthK: 1, errK: 1, diffK: 1, runX: 3.4, aiRunX: 3.7, aimAiX: 2.0, aimPlX: 2.6, aimBack: 7.6, wide: 2.7, zMin: -5, back: 12, strokes: null },
+  court: { id: "court", aimK: 3.0, cx: 0, netZ: 8, halfW: 4, len: 16, net: true, netH: NET_H, lines: true, homeD: null, homeDAi: null, depthAdj: 0, depthK: 1, errK: 1, diffK: 1, runX: 4.6, aiRunX: 5.2, aimAiX: 3.8, aimPlX: 4.9, aimBack: 7.6, wide: 4.4, zMin: -5, back: 12, strokes: null },
   // frescobol (cooperativo): de frente e paralelas à água, cada uma a 4,5 m da linha central (9 m entre as duas, contra ~15 m na quadra), no patamar de areia molhada (x de −25 a −17,8); sem rede, sem linhas, só forehand e backhand.
   // a dificuldade vem do nível da parceira (coop.ts), não de errK/diffK
-  fresco: { id: "fresco", cx: -21.4, netZ: 8, halfW: 3, len: 16, net: false, netH: 0.6, lines: false, homeD: 4.5, homeDAi: null, depthAdj: 0, depthK: 1, errK: 1, diffK: 1, runX: 3.6, aiRunX: 4.2, aimAiX: 2.8, aimPlX: 3.9, aimBack: 7.0, wide: 3.4, zMin: -1.5, back: 9.5, strokes: ["fh_din", "fh_est", "bh_din", "bh_est"] },
+  fresco: { id: "fresco", aimK: 3.0, cx: -21.4, netZ: 8, halfW: 3, len: 16, net: false, netH: 0.6, lines: false, homeD: 4.5, homeDAi: null, depthAdj: 0, depthK: 1, errK: 1, diffK: 1, runX: 3.6, aiRunX: 4.2, aimAiX: 2.8, aimPlX: 3.9, aimBack: 7.0, wide: 3.4, zMin: -1.5, back: 9.5, strokes: ["fh_din", "fh_est", "bh_din", "bh_est"] },
 };
 /** o campo em uso (mutável): quem lê `MATCH.netZ`, `MATCH.halfW`… sempre vê o campo da partida atual; `setVenue` troca */
 export const MATCH: Venue = { ...VENUES.court };
-export function setVenue(id: "court" | "fresco"): void { Object.assign(MATCH, VENUES[id]); }
+export function setVenue(id: "court" | "fresco" | "single"): void { Object.assign(MATCH, VENUES[id]); }
 
 function canvasTex(w: number, h: number, draw: (c: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
   const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
@@ -114,17 +119,24 @@ export function blobTexture(): THREE.CanvasTexture {
 }
 
 /** quadra de partida: fitas azuis de 5 cm de 16 × 8 m com estacas nos cantos e rede de 1,70 m no meio (z = MATCH.netZ), com pano que balança, fita branca e postes acolchoados */
-export function buildMatchCourt(scene: THREE.Scene): { group: THREE.Group; net: Net } {
+export function buildMatchCourt(scene: THREE.Scene): { group: THREE.Group; net: Net; use: (halfW: number) => Net } {
   const g = new THREE.Group(); g.visible = false; scene.add(g);
   const ribbon = new THREE.MeshStandardMaterial({ color: 0x2680ea, emissive: 0x0b3f86, roughness: 0.65, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  const strip = (w: number, l: number, x: number, z: number, m: THREE.Material = ribbon) => { const s = new THREE.Mesh(new THREE.PlaneGeometry(w, l), m); s.rotation.x = -Math.PI / 2; s.position.set(x, 0.006, z); g.add(s); };
-  const W = MATCH.halfW, L = MATCH.len, T = 0.08;   // fita de 8 cm (a oficial tem 5): de longe 5 cm some e a linha decide o ponto
-  strip(2 * W + T, T, 0, 0); strip(2 * W + T, T, 0, L); strip(T, L + T, -W, L / 2); strip(T, L + T, W, L / 2);   // fundo, fundo, laterais
-  strip(2 * W, T * 0.5, 0, MATCH.netZ, new THREE.MeshStandardMaterial({ color: 0x1f72d6, roughness: 0.7, transparent: true, opacity: 0.45, depthWrite: false }));   // projeção da rede
-  // estacas que prendem as fitas: cantos, pés da rede e pontos intermediários
-  const pegs: [number, number][] = [[-W, 0], [W, 0], [-W, L], [W, L], [-W, MATCH.netZ], [W, MATCH.netZ], [0, 0], [0, L], [-W, L / 4], [W, L / 4], [-W, 3 * L / 4], [W, 3 * L / 4]];
-  const pm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.013, 0.01, 0.07, 6), new THREE.MeshStandardMaterial({ color: 0xff6a00, roughness: 0.6 }), pegs.length);
-  const mm = new THREE.Matrix4(); pegs.forEach(([x, z], i) => { pm.setMatrixAt(i, mm.makeTranslation(x, 0.03, z)); }); g.add(pm);
-  const net = new Net(W, NET_H, MATCH.netZ); g.add(net.group);
-  return { group: g, net };
+  const shade = new THREE.MeshStandardMaterial({ color: 0x1f72d6, roughness: 0.7, transparent: true, opacity: 0.45, depthWrite: false }), pegMat = new THREE.MeshStandardMaterial({ color: 0xff6a00, roughness: 0.6 });
+  const L = MATCH.len, T = 0.08;   // fita de 8 cm (a oficial tem até 5; a de fundo, até 10): de longe 5 cm some e a linha decide o ponto
+  // duas quadras no mesmo lugar, uma visível de cada vez: a de duplas (8 m) e a de simples (4,5 m), cada uma com as suas linhas, estacas e rede
+  const courts = [VENUES.court.halfW, VENUES.single.halfW].map((W) => {
+    const sub = new THREE.Group(); g.add(sub);
+    const strip = (w: number, l: number, x: number, z: number, m: THREE.Material = ribbon) => { const s = new THREE.Mesh(new THREE.PlaneGeometry(w, l), m); s.rotation.x = -Math.PI / 2; s.position.set(x, 0.006, z); sub.add(s); };
+    strip(2 * W + T, T, 0, 0); strip(2 * W + T, T, 0, L); strip(T, L + T, -W, L / 2); strip(T, L + T, W, L / 2);   // fundo, fundo, laterais
+    strip(2 * W, T * 0.5, 0, MATCH.netZ, shade);   // projeção da rede
+    // estacas que prendem as fitas: cantos, pés da rede e pontos intermediários
+    const pegs: [number, number][] = [[-W, 0], [W, 0], [-W, L], [W, L], [-W, MATCH.netZ], [W, MATCH.netZ], [0, 0], [0, L], [-W, L / 4], [W, L / 4], [-W, 3 * L / 4], [W, 3 * L / 4]];
+    const pm = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.013, 0.01, 0.07, 6), pegMat, pegs.length);
+    const mm = new THREE.Matrix4(); pegs.forEach(([x, z], i) => { pm.setMatrixAt(i, mm.makeTranslation(x, 0.03, z)); }); sub.add(pm);
+    const net = new Net(W, NET_H, MATCH.netZ); sub.add(net.group);
+    return { W, sub, net };
+  });
+  const use = (halfW: number): Net => { const pick = courts.find((c) => Math.abs(c.W - halfW) < 0.01) ?? courts[0]; for (const c of courts) c.sub.visible = c === pick; return pick.net; };
+  return { group: g, net: use(MATCH.halfW), use };
 }
