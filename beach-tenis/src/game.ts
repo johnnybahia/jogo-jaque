@@ -18,6 +18,7 @@ import { STROKES, strokeOf, INTENT_W, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOS
 import { Stamina } from "./stamina";
 import { Sfx } from "./audio";
 import { Rain } from "./rain";
+import { Arena } from "./arena";
 import { fitCost } from "./fit";
 import { PoseFX } from "./posefx";
 import { WallFx } from "./wallfx";
@@ -90,7 +91,7 @@ export class Game {
   /** vento da partida na quadra (m/s, mundo): sorteado no começo e com uma rajada leve a cada ponto, nunca no meio do rali (o marcador já mostrado continuaria valendo); treino e frescobol não têm (os recordes ficam comparáveis) */
   wind: Wind = { x: 0, z: 0 }; private windBase = { sp: 0, dir: 0 }; private windSent = ""; onWind: (v: { speed: number; deg: number } | null) => void = () => {};
   /** clima da partida na quadra: 0 limpo, 1 nublado, 2 chuva (areia molhada: corrida 10% mais lenta para todas) */
-  sky = 0; rain!: Rain;
+  sky = 0; rain!: Rain; arena!: Arena;
   wetMul(): number { return this.sky === 2 ? 0.9 : 1; }
   readonly sfx = new Sfx(); camHeld = false; private slideVx = 0; private slideVz = 0;   // som e vibração; dedo na câmera agora; velocidade dos passos de ajuste durante o golpe
   vx = 0; vz = 0; phase = 0; idlePhase = 0; alt = 0;
@@ -114,7 +115,7 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.quality.onChange = () => this.applyQuality(); this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.courtMask = env.courtMask; this.shelfMask = env.shelfMask; const court = buildMatchCourt(this.scene); this.envMatch = court.group; this.net = court.net; this.foot = new Footprints(this.scene);
+    const env = buildEnvironment(this.scene, import.meta.env.BASE_URL, this.renderer); this.envTrain = env.train; this.atm = env.atmosphere; this.courtMask = env.courtMask; this.shelfMask = env.shelfMask; const court = buildMatchCourt(this.scene); this.envMatch = court.group; this.net = court.net; this.arena = new Arena(); this.arena.group.visible = S.arena; this.envMatch.add(this.arena.group); this.foot = new Footprints(this.scene);
     const bt = blobTexture(); this.props = new Props(bt); this.scene.add(this.props.group);
     const bm = new THREE.MeshBasicMaterial({ map: bt, transparent: true, depthWrite: false }); this.shadowMat = bm.clone();   // manchas: das atletas (esmaecem quando há sombra do sol) e da bola
     this.playerShadow = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.1), this.shadowMat); this.playerShadow.rotation.x = -Math.PI / 2; this.playerShadow.position.y = 0.01; this.scene.add(this.playerShadow);
@@ -260,7 +261,7 @@ export class Game {
     });
     if (!any) return false;
     { let cx = 0, cz = 0; for (const m of team) { cx += m.rig.root.position.x; cz += m.rig.root.position.z; } this.vfx.confetti(cx / team.length, cz / team.length, 220, 5, 5.2); }
-    this.sfx.cheer(60, 2.6); this.danceWho = winner; this.lastDance = first; this.react = 0; this.swing = null; this.vx = this.vz = 0;
+    this.sfx.cheer(60, 2.6); this.arena.cheer(1.6); this.danceWho = winner; this.lastDance = first; this.react = 0; this.swing = null; this.vx = this.vz = 0;
     this.camPrev = { ...this.cam }; this.camUser = -99; this.emit("dance", { winner, clip: first, n: team.length });
     return true;
   }
@@ -311,6 +312,7 @@ export class Game {
     if (tag) this.onToast(tag, `${who} · ${more}`); else this.onToast(who, `${reason} · ${more}`);
     if (winner === 0) { const t = this.dancersOf(0); let cx = 0, cz = 0; for (const m of t) { cx += m.rig.root.position.x; cz += m.rig.root.position.z; } this.vfx.confetti(cx / t.length, cz / t.length, r.game !== undefined ? 70 : 26, 2.2, 3.4); }
     if (winner === 0) this.sfx.cheer(r.game !== undefined ? 40 : this.rally >= 6 ? 26 : 12, r.game !== undefined ? 1.8 : 1.1); else this.sfx.buzz([25, 50, 25]);
+    this.arena.cheer(winner === 0 ? (r.game !== undefined ? 1 : 0.7) : 0.35);
     this.emit("point", { winner, reason, rally: this.rally, games: v.games, points: v.points }); this.onScore(v); this.onHud();
   }
 
@@ -318,7 +320,7 @@ export class Game {
     this.rig.faceAssist = S.faceAssist;
     this.rig.applyRacketTransform(S, S.playerScale);
     if (recalc) { this.rig.calibrate(S.contactOffset); this.candAll = null; }
-    this.ballMesh.scale.setScalar(S.ballVisual);
+    this.ballMesh.scale.setScalar(S.ballVisual); this.arena.group.visible = S.arena;
   }
 
   /** capa aberta: a quadra da partida ao pôr do sol aparece atrás do menu, com a câmera girando devagar em volta (as atletas ficam nos lugares, sem rali) */
@@ -332,7 +334,7 @@ export class Game {
   /** aplica o nível de qualidade (resolução agora; sombras, pós e adereços nas próximas fases) */
   applyQuality(): void {
     this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio)); this.resize();
-    this.vfx.level = this.quality.tier === "alta" ? 1 : this.quality.tier === "media" ? 0.7 : 0.4; this.rain?.setCount(this.quality.tier === "alta" ? 1800 : this.quality.tier === "media" ? 1200 : 600);
+    this.vfx.level = this.quality.tier === "alta" ? 1 : this.quality.tier === "media" ? 0.7 : 0.4; this.arena?.setTier(this.quality.tier); this.rain?.setCount(this.quality.tier === "alta" ? 1800 : this.quality.tier === "media" ? 1200 : 600);
     this.atm.clouds = this.quality.tier !== "baixa"; this.atm.waves = this.quality.tier === "baixa" ? 0.5 : 1; this.props.setTier(this.quality.tier);
     // sombra do sol: Média 1024, Alta 2048; Baixa só as manchas
     const on = this.quality.tier !== "baixa", size = this.quality.tier === "alta" ? 2048 : 1024, sun = this.atm.sun;
@@ -795,7 +797,7 @@ export class Game {
     if (this.mode === "match") for (const o of this.aiBodies()) if (o.walker > 0) fsp[o.walker] = o.speed;
     this.foot.update(dt, fsp);
     this.syncVisuals(dt);
-    this.atm.setTarget(this.cover ? 0.8 : S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera); this.rain.update(dt, this.camera.position, this.wind.x, this.wind.z); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
+    this.atm.setTarget(this.cover ? 0.8 : S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera); this.rain.update(dt, this.camera.position, this.wind.x, this.wind.z); if (this.envMatch.visible) this.arena.update(dt, THREE.MathUtils.clamp((this.atm.t - 1) * 2, 0, 1)); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
     const live = this.ballMesh.visible ? this.ball : null, sws: Swinger[] = [this.swinger(this.rig, !!this.swing)]; if (this.mode === "match") for (const o of this.aiBodies()) sws.push(this.swinger(o.rig, !!o.swing));
     this.vfx.update(dt, live, sws);
   }

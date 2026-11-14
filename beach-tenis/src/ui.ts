@@ -187,8 +187,9 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
       chips.appendChild(b);
     }
     panel.appendChild(chips);
-    const chk = (key: "auto" | "autoServe" | "stamina" | "footprints" | "force" | "sound" | "haptics" | "camReturn", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); game.sfx.apply(); game.onHud(); }; panel.appendChild(l); };
+    const chk = (key: "auto" | "autoServe" | "stamina" | "footprints" | "force" | "sound" | "haptics" | "camReturn" | "arena", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); game.sfx.apply(); game.applySettings(false); game.onHud(); }; panel.appendChild(l); };
     chk("sound", "Som (batida, areia, rede, mar e palmas)"); chk("haptics", "Vibração na batida (Android)"); chk("camReturn", "Câmera volta sozinha no rali (depois de 1,5 s sem tocar nela)");
+    chk("arena", "Arena na partida: arquibancadas, torcida e refletores");
     chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("stamina", "Fôlego (quem corre mais cansa e fica mais lenta)"); chk("footprints", "Marcas dos pés na areia"); chk("force", "Partida: marcador de queda e força (segure o GOLPE até a bola bater)");
     for (const [title, specs] of SPECS) {
       const h = document.createElement("h3"); h.textContent = title; panel.appendChild(h);
