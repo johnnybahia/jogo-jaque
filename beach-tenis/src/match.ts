@@ -15,8 +15,8 @@ import { coopLevel } from "./coop";
 export interface Level { id: string; label: string; speed: number; react: number; err: number; diff: number; smart: number; reach: number; antic: number; tf?: [number, number]; }   // antic: quanto ela lê o golpe da jogadora antes da batida e já vai para onde a bola vai cair (0 a 1)
 export const LEVELS: Record<string, Level> = {
   facil: { id: "facil", label: "Fácil", speed: 2.6, react: 0.4, err: 0.2, diff: 0.4, smart: 0.45, reach: 1.0, antic: 0.3 },
-  medio: { id: "medio", label: "Médio", speed: 3.3, react: 0.25, err: 0.11, diff: 0.83, smart: 0.8, reach: 1.4, antic: 0.75 },
-  dificil: { id: "dificil", label: "Difícil", speed: 3.6, react: 0.14, err: 0.05, diff: 0.9, smart: 0.95, reach: 1.8, antic: 0.9 },
+  medio: { id: "medio", label: "Médio", speed: 3.3, react: 0.25, err: 0.11, diff: 0.9, smart: 0.8, reach: 1.4, antic: 0.75 },
+  dificil: { id: "dificil", label: "Difícil", speed: 3.6, react: 0.14, err: 0.05, diff: 1.08, smart: 0.95, reach: 1.8, antic: 0.9 },
 };
 
 /** perfil de cada golpe: tempo de voo (s) e quão fundo (m depois da rede) a bola cai */
@@ -34,6 +34,7 @@ export const inCourt = (x: number, z: number): boolean => Math.abs(x - MATCH.cx)
 
 /** s depois do último ponto da partida em que as vencedoras começam a ir ao ponto de comemoração */
 export const CELEB_AT = 0.7;
+const HUMAN_REACT = 0.32;   // s que uma pessoa leva para ver para onde a bola vai e começar a correr (olho + dedo no direcional): a IA conta a corrida da jogadora só depois disso; sem isso as bolas exigiam reação instantânea e o círculo não ficava verde a tempo por décimos de segundo
 const PLAYER_WIND = 0.6, AI_COST = 0.6;   // AI_COST: fração do fôlego que a corrida custa à IA (ela corre mais que a jogadora: antecipa e cobre a quadra toda; com o custo cheio zerava o fôlego nos ralis longos e parava de defender)
 /** execução do golpe da jogadora: janelas de tempo (s, as mesmas do "Perfeito"/"Bom" de game.ts), desvio lateral (m) e do ângulo de saída (rad) por unidade de erro além do "Perfeito" (1 = limite do "Bom") */
 const TIME_PERF = 0.07, TIME_GOOD = 0.16, PULL = 1.2, ELEV = 0.12, LONG = 2.5;   // LONG: m a mais de profundidade da bola batida tarde (face aberta)
@@ -384,7 +385,7 @@ export class Match {
       const c = list[(Math.random() * list.length) | 0], Tf = serve ? rnd(1.25, 1.5) : rnd(lv.tf?.[0] ?? 0.95, lv.tf?.[1] ?? 1.4) * (c.cy >= 1.6 ? 1.1 : 1);
       let lim: number, shiftMax: number;
       if (ta) { lim = this.cap(ta) * (at < 28 ? 0.8 : 1); shiftMax = Math.min(3.4, ta.lvl.reach + lim * Math.max(0.15, Tf - ta.lvl.react - 0.6 * c.prep / ts - 0.1)); }
-      else { lim = NEED_MAX * mulP; shiftMax = Math.min(4.2, reachP + lim * Math.max(0.15, Tf - lock - c.prep / ts - 0.1)); }   // o limite é a corrida MÁXIMA dela: `diff` do nível diz que fração disso a bola exige (acima de 1, bola vencedora). Antes o limite era um trote (NEED_OK) e nenhum nível ganhava ponto por mérito
+      else { lim = NEED_MAX * mulP; shiftMax = Math.min(4.2, reachP + lim * Math.max(0.15, Tf - Math.max(lock, HUMAN_REACT) - c.prep / ts - 0.1)); }   // o limite é a corrida MÁXIMA dela: `diff` do nível diz que fração disso a bola exige (acima de 1, bola vencedora). Antes o limite era um trote (NEED_OK) e nenhum nível ganhava ponto por mérito
       const tc = tact && !ta && at < 24, shift = shiftMax * Math.min(1.3, lv.diff * MATCH.diffK * rnd(tc ? 0.6 : 0.15, 1.05)), th = tc ? tTh + rnd(-0.5, 0.5) : rnd(0, 2 * Math.PI);
       const px = MATCH.cx + clamp(tp.x + shift * Math.sin(th) - MATCH.cx, -MATCH.aimAiX, MATCH.aimAiX), pz = net - td * clamp(td * (net - (tp.z + shift * Math.cos(th))), 1.2, MATCH.aimBack);   // o alvo fica na metade dele da quadra
       const C = new THREE.Vector3(px + td * c.cx, c.cy, pz + td * c.cz);
@@ -400,7 +401,7 @@ export class Match {
       if (!clear || !atC || !last || last.y > BALL_R + 0.03 || !inCourt(last.x, last.z)) continue;   // passa da rede e, se ninguém bater, cai dentro da quadra
       if (shift <= shiftMax) {   // não é bola vencedora: o alvo tem de conseguir chegar
         if (ta) { const need = Math.max(0, Math.hypot(px - tp.x, pz - tp.z) - ta.lvl.reach) / Math.max(0.05, Tf - ta.lvl.react - 0.6 * c.prep / ts - 0.1); if (need > lim) continue; }
-        else if (!out) { let ok = false; for (const e of g.evalSample(atC, pl.x, pl.z, lock, c.key)) if (e.clip === c.clip && e.dy <= 0.14 && e.need <= lim) { ok = true; break; } if (!ok) continue; }
+        else if (!out) { let ok = false; for (const e of g.evalSample(atC, pl.x, pl.z, Math.max(lock, HUMAN_REACT), c.key)) if (e.clip === c.clip && e.dy <= 0.14 && e.need <= lim) { ok = true; break; } if (!ok) continue; }
       }
       Object.assign(b, { x: H.x, y: H.y, z: H.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null }); this.lastHitter = a.team; this.hitId++;
       if (a.team === 1) { this.humanOwns = tg.human; if (this.partner && tg.human && Math.abs(C.x - MATCH.cx) < 1.8) g.call("Sua!", this.partner.o, 0); }   // a bola é da jogadora e vai para o meio: a parceira cede ("Sua!")
