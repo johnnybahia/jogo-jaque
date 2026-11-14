@@ -4,7 +4,7 @@ import { S } from "./settings";
  *  O navegador só libera áudio depois de um toque: o contexto nasce no primeiro toque/tecla e, até lá (ou sem suporte), todas as chamadas não fazem nada. */
 export class Sfx {
   private ctx: AudioContext | null = null; private master: GainNode | null = null; private noise: AudioBuffer | null = null;
-  private sea: GainNode | null = null; private seaLvl = 0.6;
+  private sea: GainNode | null = null; private seaLvl = 0.6; private air: GainNode | null = null; private airLvl = 0;
 
   constructor() {
     const unlock = (): void => this.start();
@@ -28,7 +28,12 @@ export class Sfx {
         const lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 650;
         this.sea = c.createGain(); this.sea.gain.value = 0;
         const lfo = c.createOscillator(), lg = c.createGain(); lfo.frequency.value = 0.11; lg.gain.value = 0.035; lfo.connect(lg).connect(this.sea.gain);
-        src.connect(lp).connect(this.sea).connect(this.master); src.start(); lfo.start(); this.apply();
+        src.connect(lp).connect(this.sea).connect(this.master); src.start(); lfo.start();
+        // vento: o mesmo ruído, mais agudo, com rajadas lentas
+        const ws = c.createBufferSource(); ws.buffer = bb; ws.loop = true; ws.loopEnd = src.loopEnd; ws.playbackRate.value = 1.7;
+        const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 520; bp.Q.value = 0.5; this.air = c.createGain(); this.air.gain.value = 0;
+        const l2 = c.createOscillator(), g2 = c.createGain(); l2.frequency.value = 0.23; g2.gain.value = 0.25; const ag = c.createGain(); ag.gain.value = 0.75; l2.connect(g2).connect(ag.gain);
+        ws.connect(bp).connect(ag).connect(this.air).connect(this.master); ws.start(0, 1.3); l2.start(); this.apply();
       }
       if (this.ctx.state !== "running") void this.ctx.resume().catch(() => {});
     } catch { this.ctx = null; }
@@ -37,9 +42,11 @@ export class Sfx {
   /** aplica os Ajustes (som ligado/desligado) e o volume do mar */
   apply(): void {
     const c = this.ctx; if (!c || !this.sea) return;
-    this.sea.gain.setTargetAtTime(S.sound ? 0.07 * this.seaLvl : 0, c.currentTime, 0.4);
+    this.sea.gain.setTargetAtTime(S.sound ? 0.07 * this.seaLvl : 0, c.currentTime, 0.4); this.air?.gain.setTargetAtTime(S.sound ? 0.3 * this.airLvl : 0, c.currentTime, 0.8);
     if (!S.sound) void c.suspend().catch(() => {}); else if (!document.hidden && c.state !== "running") void c.resume().catch(() => {});
   }
+  /** vento em m/s: 0 cala, 5 é o mais forte */
+  wind(speed: number): void { this.airLvl = Math.min(1, speed / 5); const c = this.ctx; if (c && this.air) this.air.gain.setTargetAtTime(S.sound ? 0.3 * this.airLvl : 0, c.currentTime, 0.8); }
   /** volume do mar: 1 = à beira d'água (frescobol), ~0,6 na quadra */
   ambience(level: number): void { this.seaLvl = level; this.apply(); }
 

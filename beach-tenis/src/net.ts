@@ -12,7 +12,9 @@ function netTexture(): THREE.CanvasTexture {
 
 export class Net {
   readonly group = new THREE.Group();
-  private u = { uAmp: { value: 0 }, uTime: { value: 0 }, uHitX: { value: 0 }, uPhase: { value: 0 } };
+  private u = { uAmp: { value: 0 }, uTime: { value: 0 }, uHitX: { value: 0 }, uPhase: { value: 0 }, uWind: { value: new THREE.Vector2() } };
+  /** vento: o pano estufa para o lado em que ele sopra (z, m/s) e treme mais com a força (sp, m/s) */
+  setWind(z: number, sp: number): void { this.u.uWind.value.set(z, sp); }
   private amp = 0; private time = 0;
 
   constructor(private halfW: number, private netH: number, netZ: number) {
@@ -20,11 +22,12 @@ export class Net {
     const mat = new THREE.MeshStandardMaterial({ map: netTexture(), alphaToCoverage: true, side: THREE.DoubleSide, roughness: 1, metalness: 0 });
     mat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, this.u);
-      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nuniform float uAmp; uniform float uTime; uniform float uHitX; uniform float uPhase;")
+      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nuniform float uAmp; uniform float uTime; uniform float uHitX; uniform float uPhase; uniform vec2 uWind;")
         .replace("#include <begin_vertex>", `#include <begin_vertex>
           float topW = 0.2 + 0.8 * clamp((${(nh / 2).toFixed(3)} - position.y) / ${nh.toFixed(3)}, 0.0, 1.0);
           float dx = position.x - uHitX;
-          transformed.z += topW * (uAmp * exp(-dx * dx * 0.5) * sin(uPhase - abs(dx) * 3.2) + 0.012 * sin(position.x * 0.9 + uTime * 1.4 + position.y * 2.0));`);
+          transformed.z += topW * (uAmp * exp(-dx * dx * 0.5) * sin(uPhase - abs(dx) * 3.2) + 0.012 * (1.0 + 0.8 * uWind.y) * sin(position.x * 0.9 + uTime * (1.4 + 0.5 * uWind.y) + position.y * 2.0)
+            + 0.028 * uWind.x * cos(position.x * ${(Math.PI / nw).toFixed(4)}));`);
     };
     const cloth = new THREE.Mesh(new THREE.PlaneGeometry(nw, nh, 80, 8), mat);
     cloth.position.set(0, netH - nh / 2, netZ); g.add(cloth);

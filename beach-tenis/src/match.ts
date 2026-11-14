@@ -5,7 +5,7 @@ import type { Opponent, OppSwing } from "./opponent";
 import { Score, Format, Side } from "./rules";
 import { MATCH } from "./scene";
 import { SHELF_X } from "./sky";
-import { BALL_R, Ball, Sample, Tun, predict, solveShot } from "./physics";
+import { BALL_R, Ball, CALM, Sample, Tun, fly, predict, solveShot } from "./physics";
 import { INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex, strokeOf } from "./strokes";
 import { S } from "./settings";
 import { fitCost } from "./fit";
@@ -34,6 +34,7 @@ export const inCourt = (x: number, z: number): boolean => Math.abs(x - MATCH.cx)
 
 /** s depois do último ponto da partida em que as vencedoras começam a ir ao ponto de comemoração */
 export const CELEB_AT = 0.7;
+const PLAYER_WIND = 0.6;
 const OUT_Z = 2.5;   // a jogadora mais de 2,5 m atrás da linha de fundo está fora de jogo (nenhuma bola que dá para pegar vem de lá)
 const LANE = 2.0, BLOCK = 0.8;   // centro de cada corredor da dupla (m) e quanto a parceira acompanha, em bloco, o deslocamento lateral da outra ("corda invisível")
 const NAMES: [[string, string], [string, string]] = [["Jaqueline", "Lari"], ["Bia", "Duda"]];
@@ -86,9 +87,9 @@ export class Match {
 
   // ---------- tiro por cima da rede ----------
   /** velocidade para a bola sair de `from`, passar por cima da rede e cair em (lx, lz) em ~T s; null se nenhum arco passa da fita */
-  private shotOver(from: THREE.Vector3, lx: number, lz: number, T0: number, clear: boolean): { v: { vx: number; vy: number; vz: number }; T: number } | null {
+  private shotOver(from: THREE.Vector3, lx: number, lz: number, T0: number, clear: boolean, comp: boolean): { v: { vx: number; vy: number; vz: number }; T: number } | null {
     for (let k = 0; k < 9; k++) {
-      const T = T0 + 0.1 * k, v = solveShot(from, { x: lx, y: BALL_R, z: lz }, T);
+      const T = T0 + 0.1 * k, v = solveShot(from, { x: lx, y: BALL_R, z: lz }, T, comp ? this.g.tun.wind ?? CALM : this.humanWind());   // comp: quem bate compensa o vento (as IAs); a jogadora só em parte — o vento leva a bola dela (o marcador de queda mostra para onde)
       if (Math.hypot(v.vx, v.vy, v.vz) > 32) continue;
       if (!clear) return { v, T };
       const b: Ball = { x: from.x, y: from.y, z: from.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null };
@@ -102,12 +103,15 @@ export class Match {
     return null;
   }
 
+  /** o vento que a jogadora compensa sozinha ao bater: nada do lateral (ela corrige com a mira do direcional) e 60% do que sopra ao longo da quadra (a profundidade ela não escolhe; sem isso, vento a favor era bola fora sem remédio) */
+  private humanWind(): { x: number; z: number } { return { x: 0, z: PLAYER_WIND * (this.g.tun.wind?.z ?? 0) }; }
+
   /** lança a bola de `from` para (lx, lz): side 0 = a jogadora e a parceira, 1 = as adversárias; clear = confere a folga da rede (false: deixa bater na rede) */
-  private launch(from: THREE.Vector3, lx: number, lz: number, T: number, side: Side, clear = true): void {
+  private launch(from: THREE.Vector3, lx: number, lz: number, T: number, side: Side, clear = true, comp = true): void {
     const net = MATCH.netZ;
-    let r = this.shotOver(from, lx, lz, T, clear);
-    for (const k of [0.75, 0.5, 0.3]) if (!r) r = this.shotOver(from, lx, net + (lz - net) * k, T, clear);   // não passa: encurta a bola
-    if (!r) r = this.shotOver(from, lx, lz, T, false);
+    let r = this.shotOver(from, lx, lz, T, clear, comp);
+    for (const k of [0.75, 0.5, 0.3]) if (!r) r = this.shotOver(from, lx, net + (lz - net) * k, T, clear, comp);   // não passa: encurta a bola
+    if (!r) r = this.shotOver(from, lx, lz, T, false, comp);
     const v = r!.v, b = this.g.ball;
     Object.assign(b, { x: from.x, y: from.y, z: from.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null });
     this.lastHitter = side; this.hitId++;
@@ -131,7 +135,7 @@ export class Match {
     const lx = MATCH.cx + clamp(aim * 3.0 + (Math.random() - 0.5) * 2 * m.spread, -MATCH.aimPlX, MATCH.aimPlX);
     let d = m.pr.d[0] + (m.pr.d[1] - m.pr.d[0] + m.hi) * Math.random() * MATCH.depthK + m.adj, T = m.T, clear = true;
     if (!serve && q === 0) { const r = Math.random(); if (r < 0.2) { clear = false; T *= 0.6; } else if (r < 0.4) d += 3.2; }   // tempo ruim: bola na rede ou longa
-    this.pressure = serve ? 0 : pw; this.launch(H, lx, MATCH.netZ + clamp(d, 1, 9.5), T, 0, clear);
+    this.pressure = serve ? 0 : pw; this.launch(H, lx, MATCH.netZ + clamp(d, 1, 9.5), T, 0, clear, false);
   }
 
   /** marcador de queda: onde a bola da jogadora deve cair com esta mira, tempo e força (centro, meia-largura e meia-profundidade da dispersão, m) e a fração do sorteio que fica dentro das linhas */
@@ -139,7 +143,12 @@ export class Match {
     const m = this.shotModel(strokeOf(clip)?.key ?? "fh_din", q, pw, false), x = MATCH.cx + clamp(aim * 3.0, -MATCH.aimPlX, MATCH.aimPlX), d0 = m.pr.d[0] + m.adj, d1 = MATCH.depthK === 1 ? m.pr.d[1] + m.adj + m.hi : d0 + (m.pr.d[1] - m.pr.d[0] + m.hi) * MATCH.depthK;
     const frac = (lo: number, hi: number, a: number, b: number): number => hi > lo ? clamp((Math.min(hi, b) - Math.max(lo, a)) / (hi - lo), 0, 1) : lo >= a && lo <= b ? 1 : 0;
     const lat = frac(x - m.spread, x + m.spread, MATCH.cx - MATCH.halfW - 0.05, MATCH.cx + MATCH.halfW + 0.05), dep = frac(d0, d1, -99, MATCH.len - MATCH.netZ + 0.05);
-    return { x, z: MATCH.netZ + clamp((d0 + d1) / 2, 1, 9.5), rx: m.spread, rz: (d1 - d0) / 2, inside: lat * dep * (q === 0 ? 0.6 : 1) };
+    const w = this.g.tun.wind ?? CALM, zc = MATCH.netZ + clamp((d0 + d1) / 2, 1, 9.5); let wx = x, wz = zc;
+    if (w.x || w.z) {   // vento: a bola sai mirada no ponto sem vento e é levada; o marcador mostra onde ela cai de verdade (mesmo integrador da física)
+      const p = this.g.rig.root.position, f = { x: p.x, y: 1.2, z: p.z + 0.5 }, v = solveShot(f, { x, y: BALL_R, z: zc }, m.T, this.humanWind()); let y = f.y; wx = f.x; wz = f.z;
+      for (let i = 0; i < 720 && y > BALL_R; i++) { fly(v, 1 / 120, w); wx += v.vx / 120; y += v.vy / 120; wz += v.vz / 120; }
+    }
+    return { x: wx, z: wz, rx: m.spread, rz: (d1 - d0) / 2, inside: lat * dep * (q === 0 ? 0.6 : 1) };
   }
 
   // ---------- pontos ----------
@@ -348,7 +357,7 @@ export class Match {
       const px = MATCH.cx + clamp(tp.x + shift * Math.sin(th) - MATCH.cx, -MATCH.aimAiX, MATCH.aimAiX), pz = net - td * clamp(td * (net - (tp.z + shift * Math.cos(th))), 1.2, MATCH.aimBack);   // o alvo fica na metade dele da quadra
       const C = new THREE.Vector3(px + td * c.cx, c.cy, pz + td * c.cz);
       if (fitCost(c.key, c.cy, -td * (C.x - tp.x), td * (C.z - tp.z)) > (at < 20 ? 0.3 : at < 32 ? 0.9 : 1e9)) continue;   // a bola chega do lado e na altura em que esse golpe é o certo para ele
-      const v = solveShot(H, C, Tf);
+      const v = solveShot(H, C, Tf, g.tun.wind ?? CALM);
       if (Math.hypot(v.vx, v.vy, v.vz) > 30) continue;
       const bb: Ball = { x: H.x, y: H.y, z: H.z, vx: v.vx, vy: v.vy, vz: v.vz, bounces: 0, wallHits: 0, ret: null };
       let prev = H.z, clear = false, atC: Sample | null = null, last: Sample | null = null;

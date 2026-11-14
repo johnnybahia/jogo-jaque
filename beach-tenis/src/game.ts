@@ -27,7 +27,7 @@ import { Dancer, DANCES, pickDance } from "./dance";
 import { CAMS, CAM_NAMES, CamPose, cleanPose } from "./camera";
 import { Match, LEVELS, ScoreView, inCourt, CELEB_AT } from "./match";
 import { FORMATS, PointResult, Side } from "./rules";
-import { Ball, BALL_R, G, Sample, Tun, heightAtWall, newBall, predict, solveShot, stepBall } from "./physics";
+import { Ball, BALL_R, G, Sample, Tun, Wind, heightAtWall, newBall, predict, solveShot, stepBall } from "./physics";
 
 const PLAYER_FOLLOW = 0.28, WHIFF_FOLLOW = 0.1, CAM_BACK = 1.5;   // s de clipe em que a jogadora ainda fica presa depois do contato (golpe certo / em branco; a IA segue com FOLLOW) e s sem tocar na câmera até o giro voltar sozinho no rali
 const wrapA = (a: number): number => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
@@ -65,7 +65,7 @@ export class Game {
   rig = new Rig(); foot: Footprints;
   ball: Ball = newBall();
   ballMesh: THREE.Object3D; ballShadow: THREE.Mesh; playerShadow: THREE.Mesh;
-  tun: Tun = { eSand: 0.5, eWall: 0.75, wallZ: COURT.wallZ, wallW: COURT.wallW, wallH: COURT.wallH };   // eSand: só a bola depois do ponto; eWall: só sem devolução planejada
+  tun: Tun = { eSand: 0.5, eWall: 0.75, wallZ: COURT.wallZ, wallW: COURT.wallW, wallH: COURT.wallH, wind: { x: 0, z: 0 } };   // eSand: só a bola depois do ponto; eWall: só sem devolução planejada
   input = { right: 0, fwd: 0 };
   state: "wait" | "serve" | "rally" | "dead" = "wait";   // serve: a jogadora saca (lança a bola e bate) antes de o rali começar
   rally = 0; record = loadRecord(); deadTimer = 0; time = 0; serveTime = 0;
@@ -86,6 +86,8 @@ export class Game {
   lastLaunch: { pass: number; want: string | null; ms: number } | null = null;   // diagnóstico: como a última bola foi escolhida
   intent: string | null = null; recent: string[] = [];   // golpe (chave de STROKES) que a bola lançada prepara; últimos golpes usados (variedade)
   cam: CamPose = CAMS.get(); camEdit = false;   // câmera em órbita em torno da jogadora: giro (360°), inclinação e distância (zoom); começa na câmera escolhida (camera.ts); camEdit: tela de ajuste da câmera
+  /** vento da partida na quadra (m/s, mundo): sorteado no começo e com uma rajada leve a cada ponto, nunca no meio do rali (o marcador já mostrado continuaria valendo); treino e frescobol não têm (os recordes ficam comparáveis) */
+  wind: Wind = { x: 0, z: 0 }; private windBase = { sp: 0, dir: 0 }; private windSent = ""; onWind: (v: { speed: number; deg: number } | null) => void = () => {};
   readonly sfx = new Sfx(); camHeld = false; private slideVx = 0; private slideVz = 0;   // som e vibração; dedo na câmera agora; velocidade dos passos de ajuste durante o golpe
   vx = 0; vz = 0; phase = 0; idlePhase = 0; alt = 0;
   log: LogEntry[] = [];
@@ -145,10 +147,26 @@ export class Game {
     setVenue(m ? venue : "court"); this.fresco = m && venue === "fresco"; this.resetCands();   // o campo decide a rede, as medidas e os golpes que valem
     this.envTrain.visible = !m; this.envMatch.visible = m && !this.fresco; this.courtMask.value = m && !this.fresco ? 1 : 0; this.shelfMask.value = this.fresco ? 1 : 0; this.atm.focus(MATCH.cx, MATCH.netZ); this.opp?.setVisible(m); this.partner?.setVisible(m && this.doubles); this.opp2?.setVisible(m && this.doubles);
     Object.assign(this.tun, m ? { wallZ: 99, net: MATCH.net ? { z: MATCH.netZ, h: NET_H, w: 2 * MATCH.halfW + 0.6 } : undefined } : { wallZ: COURT.wallZ, net: undefined });
-    this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false;
+    this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false; this.windBase.sp = 0; this.setWind(0, 0);
     this.rig.root.position.set(MATCH.cx, 0, 0); this.vx = this.vz = 0; this.foot.clear();
     if (m) this.opp?.place(MATCH.cx, MATCH.len);
     this.applyCam(); this.setCamera(true); this.onHud(); this.sfx.ambience(this.fresco ? 1 : 0.6);
+  }
+
+  /** sorteia o vento da partida conforme os Ajustes (0 sem, 1 sorteia: calmo / brisa / forte, 2 brisa, 3 forte) */
+  private rollWind(): void {
+    const on = !!this.match && !this.fresco && S.wind > 0, r = Math.random(), rnd = (a: number, b: number) => a + (b - a) * Math.random();
+    this.windBase = { sp: !on ? 0 : S.wind === 2 ? rnd(1.5, 2.5) : S.wind === 3 ? rnd(4, 5) : r < 0.3 ? 0 : r < 0.7 ? rnd(1.5, 3) : rnd(3.5, 5), dir: rnd(0, 2 * Math.PI) };
+    this.gust(); if (this.windBase.sp > 0) this.onToast(this.windBase.sp >= 3.5 ? "Vento forte" : "Brisa", `${this.windBase.sp.toFixed(1).replace(".", ",")} m/s · a bola é levada; mire contra o vento`, 2600);
+  }
+  /** entre os pontos: o vento varia um pouco (±15% e ±12°) em torno do sorteado */
+  private gust(): void {
+    const b = this.windBase, sp = b.sp * (0.85 + 0.3 * Math.random()), d = b.dir + (Math.random() - 0.5) * 0.42;
+    this.setWind(sp * Math.sin(d), sp * Math.cos(d));
+  }
+  setWind(x: number, z: number): void {
+    this.wind.x = x; this.wind.z = z; const w = this.tun.wind!; w.x = x; w.z = z;   // o mesmo objeto é lido pela física, pela previsão e pela partida
+    const sp = Math.hypot(x, z); this.props.setWind(x, z); this.net.setWind(z, sp); this.sfx.wind(sp); this.windSent = "";
   }
 
   /** a bola caiu na água (frescobol): respingo e a bola some */
@@ -172,7 +190,7 @@ export class Game {
     this.doubles = mode === "duplas"; if (this.doubles) this.ensureDoubles();
     this.setMode("match", mode === "frescobol" ? "fresco" : "court"); this.matchEnded = false; this.danced = false;
     this.match = new Match(this, { partner: this.doubles ? this.partner : null, foes: this.doubles && this.opp2 ? [this.opp, this.opp2] : [this.opp] }, FORMATS[fmtId] ?? FORMATS.rapida, LEVELS[lvlId] ?? LEVELS.medio, 0);
-    this.stamina.reset(); for (const o of this.aiBodies()) o.stamina.reset(); this.coopLast = { hits: 0, secs: 0 }; this.coopNew = false;
+    this.stamina.reset(); for (const o of this.aiBodies()) o.stamina.reset(); this.coopLast = { hits: 0, secs: 0 }; this.coopNew = false; this.rollWind();
     if (this.doubles || this.fresco) { this.match.placeAll(); const h = this.match.homeOfHuman(); this.rig.root.position.set(h.x, 0, h.z); if (this.fresco) this.setCamera(true); }   // duplas e frescobol: cada uma no seu lugar
     this.onScore(this.match.view()); this.atm.setTarget(S.tod ? (S.tod - 1) / 2 : 0, true);   // a partida começa de manhã
     this.nextPoint(); this.onHud();
@@ -258,6 +276,7 @@ export class Game {
     const m = this.match; if (!m) return;
     this.state = "wait"; this.react = 0; this.ballMesh.visible = false; this.ballShadow.visible = false; this.cue = null; this.lastCue = null; this.onScore(m.view());
     if (m.over !== null) return;
+    if (this.windBase.sp > 0 && m.rallyHits() === 0 && this.time > 0) this.gust();
     if (this.fresco) { this.coopNew = false; this.coopGoal = this.coopBest().hits; this.onCoop(); if (m.coopPause) { this.onToast("Toque em SACAR para continuar", "os últimos ralis ficaram sem nenhuma rebatida sua"); this.onHud(); return; } }   // frescobol: ninguém jogando = espera o SACAR (o automático não segue sozinho)
     const sv = m.currentServer(); if (!sv) { if (S.autoServe) this.serve(); else this.onToast("Sua vez de sacar", "toque em SACAR"); } else m.startServe(sv);   // a IA que saca (adversária ou parceira) saca sozinha
   }
@@ -814,6 +833,8 @@ export class Game {
       }
       this.callsOn = out.length > 0; this.onCalls(out);
     }
+    { const sp = Math.hypot(this.wind.x, this.wind.z), yw = this.cam.yaw, deg = sp < 0.3 ? 0 : Math.round(Math.atan2(-this.wind.x * Math.cos(yw) + this.wind.z * Math.sin(yw), this.wind.x * Math.sin(yw) + this.wind.z * Math.cos(yw)) * 180 / Math.PI / 5) * 5, key = sp < 0.3 ? "" : `${sp.toFixed(1)}|${deg}`;   // seta do vento na tela: 0° = para a rede (cima), + para a direita; gira junto com a câmera
+      if (key !== this.windSent) { this.windSent = key; this.onWind(key ? { speed: sp, deg } : null); } }
     const sta = this.stamina.value; if (Math.abs(sta - this.staSent) > 0.004) { this.staSent = sta; this.onStamina(sta, this.stamina.mul()); }
     this.setCamera(false, dt);
   }
