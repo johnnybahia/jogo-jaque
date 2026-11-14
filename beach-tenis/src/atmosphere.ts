@@ -36,8 +36,16 @@ export const ATMOS: Atmos[] = [
     seaDeep: L(0.02, 0.07, 0.17), seaShallow: L(0.34, 0.27, 0.3), ridgeFar: H(0x5e5a7e), ridgeNear: H(0x55584c),
     cloud: L(1, 0.45, 0.4), cloudAmt: 0.5, exposure: 1, sand: L(1, 0.93, 0.86), haze: 220, rim: 1.1,
   },
+  { // Noite: céu escuro com lua; a quadra é iluminada de cima por refletores (luz fria e alta), o resto da praia fica no escuro
+    zenith: L(0.004, 0.008, 0.03), horizon: L(0.02, 0.035, 0.08), sunGlow: L(0.5, 0.55, 0.7), sunEl: 40, sunAz: 60, lightEl: 62,
+    fog: L(0.02, 0.03, 0.06), fogNear: 30, fogFar: 160,
+    sunLight: H(0xdfe8ff), sunI: 1.6, skyFill: H(0x3a4a78), groundFill: H(0x4a4238), hemiI: 0.55, front: H(0xcfd8ff), frontI: 0.65,
+    seaDeep: L(0.002, 0.008, 0.02), seaShallow: L(0.01, 0.03, 0.05), ridgeFar: H(0x0e1424), ridgeNear: H(0x0c1016),
+    cloud: L(0.06, 0.07, 0.1), cloudAmt: 0.35, exposure: 1, sand: L(0.85, 0.88, 1), haze: 180, rim: 0.5,
+  },
 ];
-export const ATMOS_NAMES = ["Manhã", "Tarde", "Pôr do sol"];
+export const ATMOS_NAMES = ["Manhã", "Tarde", "Pôr do sol", "Noite"];
+const T_MAX = (ATMOS.length - 1) / 2;   // posição no dia: 0 manhã, 0,5 tarde, 1 pôr do sol, 1,5 noite (a partida vai só até o pôr do sol; a noite é escolha nos Ajustes)
 
 const cloneA = (a: Atmos): Atmos => ({ ...a, zenith: a.zenith.clone(), horizon: a.horizon.clone(), sunGlow: a.sunGlow.clone(), fog: a.fog.clone(), sunLight: a.sunLight.clone(), skyFill: a.skyFill.clone(), groundFill: a.groundFill.clone(), front: a.front.clone(), seaDeep: a.seaDeep.clone(), seaShallow: a.seaShallow.clone(), ridgeFar: a.ridgeFar.clone(), ridgeNear: a.ridgeNear.clone(), cloud: a.cloud.clone(), sand: a.sand.clone() });
 const NUM: (keyof Atmos)[] = ["rim", "sunEl", "sunAz", "lightEl", "fogNear", "fogFar", "sunI", "hemiI", "frontI", "cloudAmt", "exposure", "haze"];
@@ -60,21 +68,34 @@ export class Atmosphere {
   t = 0.5; target = 0.5; cur = cloneA(ATMOS[1]);
   clouds = true; waves = 1;
   private sunDir = new THREE.Vector3(); private tmp = new THREE.Color(); private time = 0;
+  /** clima por cima da hora do dia: céu encoberto (0 a 1) e chuva (0 a 1); `set` dá o alvo e a mudança é suave */
+  overcast = 0; rain = 0; private wO = 0; private wR = 0;
+  setWeather(overcast: number, rain: number, snap = false): void { this.overcast = overcast; this.rain = rain; if (snap) { this.wO = overcast; this.wR = rain; } }
   /** do chão para a luz (sombras dos adereços) */
   readonly lightDir = new THREE.Vector3();
   readonly sun: THREE.DirectionalLight;
   constructor(private p: AtmosParts) { this.sun = p.sun; this.apply(); }
 
   /** vai para `t` (0..1) com suavidade; `snap` pula direto */
-  setTarget(t: number, snap = false): void { this.target = THREE.MathUtils.clamp(t, 0, 1); if (snap) this.t = this.target; }
+  setTarget(t: number, snap = false): void { this.target = THREE.MathUtils.clamp(t, 0, T_MAX); if (snap) this.t = this.target; }
 
   /** o sol (e a caixa da sombra) olha para este ponto do chão: a quadra, ou a faixa de areia do frescobol */
   focus(x: number, z: number): void { this.p.sun.target.position.set(x, 0, z); this.apply(); }
 
-  private mix(t: number): void { const x = t * 2, i = Math.min(1, Math.floor(x)); mixInto(this.cur, ATMOS[i], ATMOS[i + 1], x - i); }
+  private mix(t: number): void { const x = t * 2, i = Math.min(ATMOS.length - 2, Math.floor(x)); mixInto(this.cur, ATMOS[i], ATMOS[i + 1], x - i); this.weather(); }
+
+  /** encoberto: céu, névoa e mar puxam para o cinza, o sol quase some (luz difusa, sombras fracas) e as nuvens fecham; chuva: névoa mais perto, tudo mais escuro e a areia molhada (escura e menos áspera) */
+  private weather(): void {
+    const c = this.cur, o = this.wO, r = this.wR; if (o < 0.004 && r < 0.004) return;
+    const lum = (k: THREE.Color) => 0.3 * k.r + 0.59 * k.g + 0.11 * k.b, gray = (k: THREE.Color, f: number, amt: number) => { const l = lum(k) * f; k.lerp(this.tmp.setRGB(l * 0.96, l, l * 1.05), amt); };
+    const lh = lum(c.horizon); c.zenith.lerp(this.tmp.setRGB(lh * 0.5, lh * 0.52, lh * 0.56), 0.88 * o); gray(c.horizon, 0.8, 0.85 * o); gray(c.fog, 0.8, 0.85 * o);
+    gray(c.cloud, 0.5, o); c.cloudAmt += (1 - c.cloudAmt) * o; gray(c.seaDeep, 0.9, 0.6 * o); gray(c.seaShallow, 0.7, 0.7 * o); gray(c.skyFill, 1, 0.6 * o);
+    c.sunGlow.multiplyScalar(1 - 0.93 * o); c.sunI *= 1 - 0.72 * o; c.hemiI *= 1 + 0.25 * o - 0.18 * r; c.rim *= 1 - o; c.exposure *= 1 - 0.08 * o - 0.08 * r;
+    c.fogNear *= 1 - 0.45 * r; c.fogFar *= 1 - 0.5 * r; c.haze *= 1 - 0.45 * r; c.sand.multiplyScalar(1 - 0.34 * r);
+  }
 
   update(dt: number, camera: THREE.Camera): void {
-    const cam = camera.position; this.time += dt; this.t += (this.target - this.t) * (1 - Math.exp(-dt / 2.5)); this.mix(this.t);
+    const cam = camera.position; this.time += dt; this.t += (this.target - this.t) * (1 - Math.exp(-dt / 2.5)); const kw = 1 - Math.exp(-dt / 3); this.wO += (this.overcast - this.wO) * kw; this.wR += (this.rain - this.wR) * kw; this.mix(this.t);
     this.apply(); rim.dir.value.copy(this.sunDir).transformDirection(camera.matrixWorldInverse); rim.color.value.copy(this.cur.sunLight).lerp(this.cur.sunGlow, 0.35); rim.k.value = this.cur.rim; this.p.sky.mesh.position.copy(cam); this.p.sea.u.uCam.value.copy(cam); this.p.sky.u.uTime.value = this.time; this.p.sea.u.uTime.value = this.time;
   }
 
@@ -92,6 +113,6 @@ export class Atmosphere {
     p.hemi.color.copy(c.skyFill); p.hemi.groundColor.copy(c.groundFill); p.hemi.intensity = c.hemiI;
     p.sun.color.copy(c.sunLight); p.sun.intensity = c.sunI; p.sun.position.copy(this.lightDir).multiplyScalar(60).add(p.sun.target.position);
     p.fill.color.copy(c.front); p.fill.intensity = c.frontI;
-    p.sand.color.copy(c.sand); p.renderer.toneMappingExposure = c.exposure;
+    p.sand.color.copy(c.sand); p.sand.roughness = 1 - 0.3 * this.wR; p.renderer.toneMappingExposure = c.exposure;
   }
 }

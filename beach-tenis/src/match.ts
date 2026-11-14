@@ -273,7 +273,7 @@ export class Match {
 
   // ---------- IA ----------
   private sta(o: Opponent): number { return S.stamina && !this.fresco ? o.stamina.mul() : 1; }   // fôlego da IA (no frescobol a parceira não cansa: o rali não acaba por isso)
-  private cap(a: Ai): number { return a.lvl.speed * 1.15 * this.sta(a.o); }   // corrida de ataque à bola (um pouco acima do passo normal)
+  private cap(a: Ai): number { return a.lvl.speed * 1.15 * this.sta(a.o) * this.g.wetMul(); }   // corrida de ataque à bola (um pouco acima do passo normal)
 
   private moveTo(a: Ai, tx: number, tz: number, sp: number, dt: number): void {
     const o = a.o, dx = tx - o.x, dz = tz - o.z, d = Math.hypot(dx, dz), want = d > 0.05 ? Math.min(sp, d * 4) : 0, k = Math.min(1, 9 * dt);

@@ -17,6 +17,7 @@ import { AimMark, PowerView } from "./power";
 import { STROKES, strokeOf, INTENT_W, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
 import { Stamina } from "./stamina";
 import { Sfx } from "./audio";
+import { Rain } from "./rain";
 import { fitCost } from "./fit";
 import { PoseFX } from "./posefx";
 import { WallFx } from "./wallfx";
@@ -88,6 +89,9 @@ export class Game {
   cam: CamPose = CAMS.get(); camEdit = false;   // câmera em órbita em torno da jogadora: giro (360°), inclinação e distância (zoom); começa na câmera escolhida (camera.ts); camEdit: tela de ajuste da câmera
   /** vento da partida na quadra (m/s, mundo): sorteado no começo e com uma rajada leve a cada ponto, nunca no meio do rali (o marcador já mostrado continuaria valendo); treino e frescobol não têm (os recordes ficam comparáveis) */
   wind: Wind = { x: 0, z: 0 }; private windBase = { sp: 0, dir: 0 }; private windSent = ""; onWind: (v: { speed: number; deg: number } | null) => void = () => {};
+  /** clima da partida na quadra: 0 limpo, 1 nublado, 2 chuva (areia molhada: corrida 10% mais lenta para todas) */
+  sky = 0; rain!: Rain;
+  wetMul(): number { return this.sky === 2 ? 0.9 : 1; }
   readonly sfx = new Sfx(); camHeld = false; private slideVx = 0; private slideVz = 0;   // som e vibração; dedo na câmera agora; velocidade dos passos de ajuste durante o golpe
   vx = 0; vz = 0; phase = 0; idlePhase = 0; alt = 0;
   log: LogEntry[] = [];
@@ -117,7 +121,7 @@ export class Game {
     this.ballShadow = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.3), bm); this.ballShadow.rotation.x = -Math.PI / 2; this.ballShadow.position.y = 0.012; this.scene.add(this.ballShadow);
     this.ballMesh = new THREE.Group(); this.ballMesh.add(new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 20, 14), new THREE.MeshStandardMaterial({ color: 0xd8f23a, emissive: 0x6a7a10, roughness: 0.7 }))); this.scene.add(this.ballMesh);
     this.ballMesh.visible = false; this.ballShadow.visible = false;
-    this.vfx = new Fx(this.scene, this.camera, this.renderer); this.marker = new CueMarker(this.scene); this.aimMark = new AimMark(this.scene); this.wallFx = new WallFx(this.scene); this.dust = new Dust(this.scene); this.foot.onPlant = (x, z, sp) => this.dust.puff(x, z, sp);
+    this.vfx = new Fx(this.scene, this.camera, this.renderer); this.marker = new CueMarker(this.scene); this.aimMark = new AimMark(this.scene); this.wallFx = new WallFx(this.scene); this.dust = new Dust(this.scene); this.rain = new Rain(this.scene); this.foot.onPlant = (x, z, sp) => this.dust.puff(x, z, sp);
     this.applyQuality();
   }
 
@@ -147,7 +151,7 @@ export class Game {
     setVenue(m ? venue : "court"); this.fresco = m && venue === "fresco"; this.resetCands();   // o campo decide a rede, as medidas e os golpes que valem
     this.envTrain.visible = !m; this.envMatch.visible = m && !this.fresco; this.courtMask.value = m && !this.fresco ? 1 : 0; this.shelfMask.value = this.fresco ? 1 : 0; this.atm.focus(MATCH.cx, MATCH.netZ); this.opp?.setVisible(m); this.partner?.setVisible(m && this.doubles); this.opp2?.setVisible(m && this.doubles);
     Object.assign(this.tun, m ? { wallZ: 99, net: MATCH.net ? { z: MATCH.netZ, h: NET_H, w: 2 * MATCH.halfW + 0.6 } : undefined } : { wallZ: COURT.wallZ, net: undefined });
-    this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false; this.windBase.sp = 0; this.setWind(0, 0);
+    this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false; this.windBase.sp = 0; this.setWind(0, 0); this.setSky(0);
     this.rig.root.position.set(MATCH.cx, 0, 0); this.vx = this.vz = 0; this.foot.clear();
     if (m) this.opp?.place(MATCH.cx, MATCH.len);
     this.applyCam(); this.setCamera(true); this.onHud(); this.sfx.ambience(this.fresco ? 1 : 0.6);
@@ -157,8 +161,18 @@ export class Game {
   private rollWind(): void {
     const on = !!this.match && !this.fresco && S.wind > 0, r = Math.random(), rnd = (a: number, b: number) => a + (b - a) * Math.random();
     this.windBase = { sp: !on ? 0 : S.wind === 2 ? rnd(1.5, 2.5) : S.wind === 3 ? rnd(4, 5) : r < 0.3 ? 0 : r < 0.7 ? rnd(1.5, 3) : rnd(3.5, 5), dir: rnd(0, 2 * Math.PI) };
-    this.gust(); if (this.windBase.sp > 0) this.onToast(this.windBase.sp >= 3.5 ? "Vento forte" : "Brisa", `${this.windBase.sp.toFixed(1).replace(".", ",")} m/s · a bola é levada; mire contra o vento`, 2600);
+    this.gust();
   }
+  /** sorteia o clima da partida conforme os Ajustes (0 sorteia: 55% limpo, 25% nublado, 20% chuva; 1 limpo, 2 nublado, 3 chuva); só na quadra */
+  private rollSky(): void {
+    const on = !!this.match && !this.fresco, r = Math.random();
+    this.setSky(!on ? 0 : S.weather === 0 ? (r < 0.55 ? 0 : r < 0.8 ? 1 : 2) : S.weather - 1);
+    const w = this.windBase.sp, wt = w > 0 ? `${w >= 3.5 ? "vento forte" : "brisa"} de ${w.toFixed(1).replace(".", ",")} m/s` : "";   // um aviso só para o clima e o vento
+    if (this.sky === 2) this.onToast("Chuva", `areia molhada: todas correm menos${wt ? " · " + wt : ""}`, 2800);
+    else if (wt) this.onToast(w >= 3.5 ? "Vento forte" : "Brisa", `${w.toFixed(1).replace(".", ",")} m/s · a bola é levada; mire contra o vento`, 2600);
+    else if (this.sky === 1) this.onToast("Dia nublado", undefined, 1600);
+  }
+  setSky(k: number, snap = false): void { this.sky = k; this.atm.setWeather(k > 0 ? 1 : 0, k === 2 ? 1 : 0, snap); this.rain.target = k === 2 ? 1 : 0; this.sfx.rain(k === 2 ? 1 : 0); }
   /** entre os pontos: o vento varia um pouco (±15% e ±12°) em torno do sorteado */
   private gust(): void {
     const b = this.windBase, sp = b.sp * (0.85 + 0.3 * Math.random()), d = b.dir + (Math.random() - 0.5) * 0.42;
@@ -166,7 +180,7 @@ export class Game {
   }
   setWind(x: number, z: number): void {
     this.wind.x = x; this.wind.z = z; const w = this.tun.wind!; w.x = x; w.z = z;   // o mesmo objeto é lido pela física, pela previsão e pela partida
-    const sp = Math.hypot(x, z); this.props.setWind(x, z); this.net.setWind(z, sp); this.sfx.wind(sp); this.windSent = "";
+    const sp = Math.hypot(x, z); this.props.setWind(x, z); this.net.setWind(z, sp); this.sfx.wind(sp); this.windSent = "?";
   }
 
   /** a bola caiu na água (frescobol): respingo e a bola some */
@@ -190,7 +204,7 @@ export class Game {
     this.doubles = mode === "duplas"; if (this.doubles) this.ensureDoubles();
     this.setMode("match", mode === "frescobol" ? "fresco" : "court"); this.matchEnded = false; this.danced = false;
     this.match = new Match(this, { partner: this.doubles ? this.partner : null, foes: this.doubles && this.opp2 ? [this.opp, this.opp2] : [this.opp] }, FORMATS[fmtId] ?? FORMATS.rapida, LEVELS[lvlId] ?? LEVELS.medio, 0);
-    this.stamina.reset(); for (const o of this.aiBodies()) o.stamina.reset(); this.coopLast = { hits: 0, secs: 0 }; this.coopNew = false; this.rollWind();
+    this.stamina.reset(); for (const o of this.aiBodies()) o.stamina.reset(); this.coopLast = { hits: 0, secs: 0 }; this.coopNew = false; this.rollWind(); this.rollSky();
     if (this.doubles || this.fresco) { this.match.placeAll(); const h = this.match.homeOfHuman(); this.rig.root.position.set(h.x, 0, h.z); if (this.fresco) this.setCamera(true); }   // duplas e frescobol: cada uma no seu lugar
     this.onScore(this.match.view()); this.atm.setTarget(S.tod ? (S.tod - 1) / 2 : 0, true);   // a partida começa de manhã
     this.nextPoint(); this.onHud();
@@ -318,7 +332,7 @@ export class Game {
   /** aplica o nível de qualidade (resolução agora; sombras, pós e adereços nas próximas fases) */
   applyQuality(): void {
     this.renderer.setPixelRatio(this.quality.pixelRatio(window.devicePixelRatio)); this.resize();
-    this.vfx.level = this.quality.tier === "alta" ? 1 : this.quality.tier === "media" ? 0.7 : 0.4;
+    this.vfx.level = this.quality.tier === "alta" ? 1 : this.quality.tier === "media" ? 0.7 : 0.4; this.rain?.setCount(this.quality.tier === "alta" ? 1800 : this.quality.tier === "media" ? 1200 : 600);
     this.atm.clouds = this.quality.tier !== "baixa"; this.atm.waves = this.quality.tier === "baixa" ? 0.5 : 1; this.props.setTier(this.quality.tier);
     // sombra do sol: Média 1024, Alta 2048; Baixa só as manchas
     const on = this.quality.tier !== "baixa", size = this.quality.tier === "alta" ? 2048 : 1024, sun = this.atm.sun;
@@ -406,7 +420,7 @@ export class Game {
   }
 
   /** fração da velocidade máxima que o fôlego atual permite (1 = descansada) */
-  speedMul(): number { return S.stamina ? this.stamina.mul() : 1; }
+  speedMul(): number { return (S.stamina ? this.stamina.mul() : 1) * this.wetMul(); }
 
   // ---------- tempo e posição ----------
   reachR(): number { return S.assist * (S.auto ? 1.6 : 1); }   // raio em que o golpe ainda leva a jogadora ao ponto certo
@@ -781,7 +795,7 @@ export class Game {
     if (this.mode === "match") for (const o of this.aiBodies()) if (o.walker > 0) fsp[o.walker] = o.speed;
     this.foot.update(dt, fsp);
     this.syncVisuals(dt);
-    this.atm.setTarget(this.cover ? 0.8 : S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
+    this.atm.setTarget(this.cover ? 0.8 : S.tod ? (S.tod - 1) / 2 : this.match ? this.match.score.progress() : 0.5); this.atm.update(dt, this.camera); this.rain.update(dt, this.camera.position, this.wind.x, this.wind.z); this.props.update(dt, this.atm.lightDir); this.net.update(dt);
     const live = this.ballMesh.visible ? this.ball : null, sws: Swinger[] = [this.swinger(this.rig, !!this.swing)]; if (this.mode === "match") for (const o of this.aiBodies()) sws.push(this.swinger(o.rig, !!o.swing));
     this.vfx.update(dt, live, sws);
   }
@@ -880,6 +894,6 @@ export class Game {
     this.camera.lookAt(bx + sy * lead, ty, p.z + cy * lead);
   }
 
-  render(dt = 0.016): void { if (this.post) { this.post.update(this.atm.t); this.post.render(dt); } else this.renderer.render(this.scene, this.camera); }
+  render(dt = 0.016): void { if (this.post) { this.post.update(Math.min(1, this.atm.t)); this.post.render(dt); } else this.renderer.render(this.scene, this.camera); }
   advanceSeconds(sec: number): void { const n = Math.round(sec * 60); for (let i = 0; i < n; i++) this.tick(1 / 60); }
 }
