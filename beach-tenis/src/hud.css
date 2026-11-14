@@ -32,6 +32,8 @@ html,body{font-family:var(--f-ui)}
 #info:not(:empty){padding:2px 10px 3px;border-radius:999px;background:var(--glass);border:1px solid var(--line);text-shadow:none;color:#dcebf7}
 #staWrap{display:flex;align-items:center;gap:6px;padding:3px 9px 3px 7px;border-radius:999px;background:var(--glass);border:1px solid var(--line);color:var(--lime)}
 #staWrap .ic{width:15px;height:15px;stroke-width:2.4}
+#wind{display:flex;align-items:center;gap:6px;padding:2px 10px 3px 8px;border-radius:999px;background:var(--glass);border:1px solid var(--line);color:#dcebf7;font:800 11px/1.25 var(--f-ui);text-shadow:none}
+#wind[hidden]{display:none}#wind i{display:inline-block;font:900 15px/1 var(--f-ui);font-style:normal;color:#8fd3ff;transition:transform .3s}#wind.strong i{color:#ffb066}
 #sta{display:flex;gap:2px;align-items:center}
 #sta i{display:block;width:8px;height:11px;border-radius:2px;transform:skewX(-14deg);background:#ffffff26;transition:background .15s}
 #sta i.on{background:var(--lime);box-shadow:0 0 6px #d8f23a66}

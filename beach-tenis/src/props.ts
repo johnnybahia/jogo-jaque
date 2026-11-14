@@ -64,7 +64,9 @@ interface Spot { x: number; z: number; ry: number; s: number; tint: number }
 
 export class Props {
   readonly group = new THREE.Group();
-  private t = { uTime: { value: 0 } };
+  private t = { uTime: { value: 0 }, uWind: { value: new THREE.Vector2() } }; private windSp = 0;
+  /** vento (m/s, mundo): as folhas das palmeiras deitam para onde ele sopra e balançam mais depressa */
+  setWind(x: number, z: number): void { this.t.uWind.value.set(x, z); this.windSp = Math.hypot(x, z); }
   private palms: THREE.InstancedMesh[] = []; private umbrellas: THREE.InstancedMesh[] = []; private shadows: THREE.InstancedMesh; private umbSpots: Spot[] = []; private palmSpots: Spot[] = [];
   private nPalm = 0; private nUmb = 0; private actP = 0; private actU = 0; private lastLight = new THREE.Vector3(9, 9, 9); private m = new THREE.Matrix4(); private q = new THREE.Quaternion(); private v = new THREE.Vector3(); private s = new THREE.Vector3(); private e = new THREE.Euler();
 
@@ -77,9 +79,10 @@ export class Props {
     const leafMat = new THREE.MeshStandardMaterial({ map: leafTexture(), alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.85 });
     leafMat.onBeforeCompile = (sh) => {
       Object.assign(sh.uniforms, this.t);
-      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nuniform float uTime;").replace("#include <begin_vertex>", `#include <begin_vertex>
+      sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nuniform float uTime; uniform vec2 uWind;").replace("#include <begin_vertex>", `#include <begin_vertex>
         float tip = uv.y * uv.y; float ph = uTime * 1.5 + instanceMatrix[3].x * 0.21 + instanceMatrix[3].z * 0.17;
-        transformed.x += sin(ph + uv.y * 3.0) * 0.14 * tip; transformed.y += sin(ph * 1.3 + uv.y * 2.0) * 0.1 * tip; transformed.z += cos(ph * 0.9) * 0.09 * tip;`);
+        transformed.x += sin(ph + uv.y * 3.0) * 0.14 * tip; transformed.y += sin(ph * 1.3 + uv.y * 2.0) * 0.1 * tip; transformed.z += cos(ph * 0.9) * 0.09 * tip;
+        vec3 wl = vec3(uWind.x, 0.0, uWind.y) * mat3(instanceMatrix); transformed += wl * (0.11 * tip * (1.0 + 0.35 * sin(ph * 2.3)));`);
     };
     const nP = spots.length;
     for (const [geo, mat] of [[trunkGeometry(H, lean), trunkMat], [frondGeometry(H, lean), leafMat]] as [THREE.BufferGeometry, THREE.Material][]) {
@@ -145,7 +148,7 @@ export class Props {
 
   /** `light` = direção da luz (do chão para o sol); as sombras só são refeitas quando ela muda mais de ~1° */
   update(dt: number, light: THREE.Vector3): void {
-    this.t.uTime.value += dt;
+    this.t.uTime.value += dt * (1 + 0.45 * this.windSp);
     if (this.group.visible && this.lastLight.dot(light) < 0.9998) { this.lastLight.copy(light); this.placeShadows(light); }
   }
 }

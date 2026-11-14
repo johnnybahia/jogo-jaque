@@ -4,16 +4,24 @@ export interface Vel { vx: number; vy: number; vz: number; }
 /** ret: devolução planejada da parede (velocidade de saída no próximo toque na parede); sem ela, a parede reflete a bola com Tun.eWall */
 export interface Ball { x: number; y: number; z: number; vx: number; vy: number; vz: number; bounces: number; wallHits: number; ret?: Vel | null; }
 export interface Net { z: number; h: number; w: number; }   // plano da rede (z), altura (m) e largura (m) entre os postes
-export interface Tun { eSand: number; eWall: number; wallZ: number; wallW: number; wallH: number; net?: Net; }
+/** vento horizontal (m/s, mundo): empurra a bola pelo arrasto (a bola é freada em relação ao ar, não ao chão) */
+export interface Wind { x: number; z: number; }
+export const CALM: Wind = { x: 0, z: 0 };
+export interface Tun { eSand: number; eWall: number; wallZ: number; wallW: number; wallH: number; net?: Net; wind?: Wind; }
 export type Ev = "sand" | "wall" | "wallout" | "net" | null;
 export const DRAG = 0.025; // 0.5*rho*Cd*A/m para bola ~6,5 cm / 45 g
 const FRIC_SAND = 0.8;
 
+/** um passo de voo (gravidade + arrasto em relação ao ar): o ÚNICO integrador — a física, a previsão e o planejamento dos golpes passam por aqui, senão o plano diverge da bola de verdade */
+export function fly(v: Vel, dt: number, w: Wind = CALM): void {
+  const rx = v.vx - w.x, rz = v.vz - w.z, k = DRAG * Math.hypot(rx, v.vy, rz);
+  v.vx -= k * rx * dt; v.vz -= k * rz * dt; v.vy -= (G + k * v.vy) * dt;
+}
+
 export function newBall(): Ball { return { x: 0, y: 1, z: 0, vx: 0, vy: 0, vz: 0, bounces: 0, wallHits: 0, ret: null }; }
 
 export function stepBall(b: Ball, dt: number, t: Tun): Ev {
-  const k = DRAG * Math.hypot(b.vx, b.vy, b.vz);
-  b.vx -= k * b.vx * dt; b.vz -= k * b.vz * dt; b.vy -= (G + k * b.vy) * dt;
+  fly(b, dt, t.wind);
   b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
   let ev: Ev = null;
   if (b.y < BALL_R && b.vy < 0) {
@@ -61,12 +69,12 @@ export function heightAtWall(b: Ball, vx: number, vy: number, vz: number, zWall:
 }
 
 /** velocidade de saída para a bola partir de `from` e passar por `to` depois de T s (com arrasto, mesmo passo da física); a devolução da parede usa isto */
-export function solveShot(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, T: number): Vel {
+export function solveShot(from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }, T: number, w: Wind = CALM): Vel {
   let vx = (to.x - from.x) / T, vz = (to.z - from.z) / T, vy = (to.y - from.y + 0.5 * G * T * T) / T;
   const n = Math.max(1, Math.round(T * 120)), dt = T / n;
-  for (let it = 0; it < 4; it++) {   // converge ~4,5× por volta: 4 voltas dão erro < 3 mm
-    let x = from.x, y = from.y, z = from.z, ux = vx, uy = vy, uz = vz;
-    for (let i = 0; i < n; i++) { const k = DRAG * Math.hypot(ux, uy, uz); ux -= k * ux * dt; uz -= k * uz * dt; uy -= (G + k * uy) * dt; x += ux * dt; y += uy * dt; z += uz * dt; }
+  for (let it = 0; it < (w.x || w.z ? 6 : 4); it++) {   // converge ~4,5× por volta: 4 voltas dão erro < 3 mm
+    let x = from.x, y = from.y, z = from.z; const u = { vx, vy, vz };
+    for (let i = 0; i < n; i++) { fly(u, dt, w); x += u.vx * dt; y += u.vy * dt; z += u.vz * dt; }
     vx += (to.x - x) / T; vy += (to.y - y) / T; vz += (to.z - z) / T;
   }
   return { vx, vy, vz };

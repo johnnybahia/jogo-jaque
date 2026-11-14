@@ -54,6 +54,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     for (let i = 0; i < calls.children.length; i++) { const e = calls.children[i] as HTMLElement, c = list[i]; if (!c) { e.style.display = "none"; continue; } e.style.display = ""; e.textContent = c.text; e.className = `call t${c.team}`; e.style.left = `${c.x}%`; e.style.top = `${c.y}%`; e.style.opacity = String(c.a); }
   };
   game.onStamina = (v) => { const n = Math.ceil(v * 10 - 0.001); staSegs.forEach((e, i) => e.classList.toggle("on", i < n)); sta.classList.toggle("low", v < 0.3); sta.classList.toggle("mid", v >= 0.3 && v < 0.55); };
+  const windEl = $("wind"), windArrow = windEl.querySelector("i") as HTMLElement, windTxt = windEl.querySelector("b") as HTMLElement;   // vento: a seta aponta, na tela, para onde ele leva a bola
+  game.onWind = (v) => { windEl.hidden = !v; if (!v) return; windArrow.style.transform = `rotate(${v.deg}deg)`; windTxt.textContent = `${v.speed.toFixed(1).replace(".", ",")} m/s`; windEl.classList.toggle("strong", v.speed >= 3.5); };
   const rallyEl = $("rally"); let lastRally = -1;
   /** canto superior esquerdo: rali (some na partida enquanto não há rali) e último golpe (no treino, com erro em ms e distância em cm; na partida só o nome) */
   const upd = () => {
@@ -170,6 +172,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     qs.onchange = () => { game.quality.set(qs.value as Choice); qshow(); }; qshow(); panel.appendChild(ql);
     const tl = document.createElement("label"); tl.innerHTML = `<span>Hora do dia<select><option value="0">Avança com a partida</option><option value="1">Manhã</option><option value="2">Tarde</option><option value="3">Pôr do sol</option></select></span>`;
     const ts = tl.querySelector("select")!; ts.value = String(S.tod); ts.onchange = () => { S.tod = Number(ts.value); saveSettings(); }; panel.appendChild(tl);
+    const wl = document.createElement("label"); wl.innerHTML = `<span>Vento na partida<select><option value="0">Sem vento</option><option value="1">Sorteia a cada partida</option><option value="2">Brisa (~2 m/s)</option><option value="3">Forte (~4,5 m/s)</option></select></span><small>vale a partir da próxima partida na quadra; treino e frescobol não têm vento</small>`;
+    const ws = wl.querySelector("select")!; ws.value = String(S.wind); ws.onchange = () => { S.wind = Number(ws.value); saveSettings(); }; panel.appendChild(wl);
     const gh = document.createElement("h3"); gh.textContent = "Golpes do vídeo (toque para ver)"; panel.appendChild(gh);
     const chips = document.createElement("div"); chips.className = "chips"; const turn = new Map<string, number>();
     for (const st of STROKES) {
