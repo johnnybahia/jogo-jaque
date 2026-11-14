@@ -3,7 +3,7 @@ import { NEED_MAX } from "./game";
 import type { Game, Cand } from "./game";
 import type { Opponent, OppSwing } from "./opponent";
 import { Score, Format, Side } from "./rules";
-import { MATCH } from "./scene";
+import { MATCH, SERVE_ZONE } from "./scene";
 import { SHELF_X } from "./sky";
 import { BALL_R, Ball, CALM, Sample, Tun, fly, predict, solveShot } from "./physics";
 import { INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex, strokeOf } from "./strokes";
@@ -15,8 +15,8 @@ import { coopLevel } from "./coop";
 export interface Level { id: string; label: string; speed: number; react: number; err: number; diff: number; smart: number; reach: number; antic: number; tf?: [number, number]; }   // antic: quanto ela lê o golpe da jogadora antes da batida e já vai para onde a bola vai cair (0 a 1)
 export const LEVELS: Record<string, Level> = {
   facil: { id: "facil", label: "Fácil", speed: 2.6, react: 0.4, err: 0.2, diff: 0.4, smart: 0.45, reach: 1.0, antic: 0.3 },
-  medio: { id: "medio", label: "Médio", speed: 3.3, react: 0.25, err: 0.11, diff: 0.9, smart: 0.8, reach: 1.4, antic: 0.75 },
-  dificil: { id: "dificil", label: "Difícil", speed: 3.6, react: 0.14, err: 0.05, diff: 1.08, smart: 0.95, reach: 1.8, antic: 0.9 },
+  medio: { id: "medio", label: "Médio", speed: 3.3, react: 0.25, err: 0.11, diff: 0.82, smart: 0.8, reach: 1.4, antic: 0.75 },
+  dificil: { id: "dificil", label: "Difícil", speed: 3.6, react: 0.14, err: 0.05, diff: 1.0, smart: 0.95, reach: 1.8, antic: 0.9 },
 };
 
 /** perfil de cada golpe: tempo de voo (s) e quão fundo (m depois da rede) a bola cai */
@@ -141,11 +141,12 @@ export class Match {
    *  Dentro da janela do "Perfeito" não há desvio. Sobra um erro pequeno, que cresce com a força e com a corrida até a bola. `err` = s de erro do aperto (+ cedo), `ay` = direcional para a frente (−1 a 1), `stretch` = quanto ela teve de se esticar (0 a 1) */
   private playerPlan(key: string, q: number, err: number, aim: number, ay: number, pw: number, stretch: number): PShot {
     const m = this.shotModel(key, q, pw, false), u = err / (TIME_GOOD * S.timing), ux = Math.sign(u) * Math.max(0, Math.abs(u) - TIME_PERF / TIME_GOOD), sd = FIT[key]?.side ?? 0;
+    const wk = MATCH.halfW / 4;   // os desvios laterais (m) foram medidos na quadra de 8 m: na de simples (4,5 m) encolhem na mesma proporção
     const d0 = m.pr.d[0] + m.adj, d1 = m.pr.d[1] + m.adj + m.hi, c = (d0 + d1) / 2, half = (d1 - d0) / 2 * MATCH.depthK, a = Math.abs(ay) < 0.35 ? 0 : ay, can = !OVERHEAD.has(key) && m.pr.T < 1.5 && MATCH.net;
     let d = c + a * half * 1.2, rz = half * 0.45, T = m.T, kind: PShot["kind"] = "";
     if (can && a <= -0.6) { d = 2.0; rz = 0.4; T = m.T * 1.5; kind = "drop"; } else if (can && a >= 0.6) { d = 6.4; rz = 0.5; T = m.T * 1.45; kind = "lob"; }   // curtinha: bola mansa e alta (dá tempo de a adversária rápida chegar)
     d += LONG * Math.max(0, -ux);
-    return { lx: MATCH.cx + clamp(aim * 3.0, -MATCH.aimPlX, MATCH.aimPlX) + Math.sign(sd) * PULL * ux, d, T, elev: ux > 0 ? -ELEV * ux : -0.02 * ux, rx: m.spread * 0.6, rz, re: 0.015 * (1 + 1.5 * pw + stretch), kind };   // a direita dela é −x: forehand cedo cruza para +x
+    return { lx: MATCH.cx + clamp(aim * MATCH.aimK, -MATCH.aimPlX, MATCH.aimPlX) + Math.sign(sd) * PULL * wk * ux, d, T, elev: ux > 0 ? -ELEV * ux : -0.02 * ux, rx: m.spread * 0.6 * wk, rz, re: 0.015 * (1 + 1.5 * pw + stretch), kind };   // a direita dela é −x: forehand cedo cruza para +x
   }
 
   /** velocidade de saída do plano `p` a partir de `from`: arco que passa da rede até o alvo e, por cima, o desvio de execução (ângulo de saída); nx, nz, ne = sorteios de −1 a 1 (0 = o centro, para o marcador) */
@@ -158,7 +159,7 @@ export class Match {
   /** bola da jogadora. Saque: como sempre (mira + sorteio de profundidade). Rebatida: colocação + execução (ver `playerPlan`); devolve "drop" ou "lob" quando o golpe saiu assim */
   playerShot(H: THREE.Vector3, clip: string, q: number, aim: number, serve = false, pw = 0, o: { err: number; ay: number; stretch: number } = { err: 0, ay: 0, stretch: 0 }): string {
     if (serve) {
-      const m = this.shotModel("saque", q, 0, true), lx = MATCH.cx + clamp(aim * 3.0 + (Math.random() - 0.5) * 2 * m.spread, -MATCH.aimPlX, MATCH.aimPlX), d = m.pr.d[0] + (m.pr.d[1] - m.pr.d[0]) * Math.random() * MATCH.depthK + m.adj;
+      const m = this.shotModel("saque", q, 0, true), lx = MATCH.cx + clamp(aim * MATCH.aimK + (Math.random() - 0.5) * 2 * m.spread * MATCH.halfW / 4, -MATCH.aimPlX, MATCH.aimPlX), d = m.pr.d[0] + (m.pr.d[1] - m.pr.d[0]) * Math.random() * MATCH.depthK + m.adj;
       this.pressure = 0; this.launch(H, lx, MATCH.netZ + clamp(d, 1, 9.5), m.T, 0, true, false); return "";
     }
     this.humanHits++;
@@ -211,7 +212,7 @@ export class Match {
     const g = this.g, srv = this.score.server, r = this.score.pointWon(winner);
     const hits = this.hitId - this.hits0; this.hits0 = this.hitId;   // destaques: ace (saque sem devolução), smash que cai dentro, ralis longos
     const tag = landed && winner === srv && hits <= 1 ? "ACE!" : landed && hits >= 3 && (g.lastKey === "smash" || g.lastKey === "espeto") ? "SMASH!" : hits >= 16 ? `RALI DE ${hits}!` : undefined;
-    if (r.match !== undefined) this.over = r.match;
+    if (r.match !== undefined) this.over = r.match; else if (r.swap) g.changeSides();
     if (this.score.server !== srv || r.game !== undefined) this.rotateServer();
     this.toss = null; this.humanOwns = true;
     for (const a of this.ais) {
@@ -235,7 +236,7 @@ export class Match {
   // ---------- lugares ----------
   /** corredor de cada uma (m): a jogadora na esquerda (+x, de quem olha para a rede), a parceira na direita; nas adversárias o lado delas é o oposto */
   private lane(team: Side, idx: 0 | 1): number { return (team === 0 ? (idx === 0 ? 1 : -1) : (idx === 0 ? -1 : 1)) * LANE; }
-  private homeX1(): number { return MATCH.cx + clamp(-(this.g.rig.root.position.x - MATCH.cx) * 0.3, -1.5, 1.5); }
+  private homeX1(): number { return MATCH.cx + clamp(-(this.g.rig.root.position.x - MATCH.cx) * 0.3, -0.375 * MATCH.halfW, 0.375 * MATCH.halfW); }
   /** onde cada uma espera o ponto. Single: quem saca fica atrás da linha de fundo e quem recebe, um pouco à frente. Duplas: quem saca atrás da linha, a parceira colada na rede (1,8 m);
    *  quem recebe, a de trás a ~6 m da rede e a parceira a 2,7 m */
   homeOf(team: Side, idx: 0 | 1): { x: number; z: number } {
@@ -245,8 +246,8 @@ export class Match {
       return team === 0 ? { x: MATCH.cx, z: serving ? -0.3 : 1.5 } : { x: this.homeX1(), z: serving ? MATCH.len + 0.3 : MATCH.len - 1.6 };
     }
     const dir = team === 0 ? 1 : -1, x = this.lane(team, idx), at = (d: number) => MATCH.netZ - dir * d;
-    if (serving) return idx === this.serverIdx ? { x: x * 0.75, z: at(MATCH.netZ + 0.3) } : { x, z: at(1.8) };
-    return idx === 0 ? { x, z: at(6.0) } : { x, z: at(2.7) };
+    if (serving) return idx === this.serverIdx ? { x: x * 0.75, z: at(MATCH.netZ + 0.3) } : { x, z: at(SERVE_ZONE + 0.3) };   // a parceira de quem saca fica fora da zona proibida (3 m da rede) até a bola entrar em jogo
+    return idx === 0 ? { x, z: at(6.0) } : { x, z: at(SERVE_ZONE + 0.3) };
   }
   homeOfHuman(): { x: number; z: number } { return this.homeOf(0, 0); }
   /** onde quem venceu comemora: no meio da metade dela, a ~6 m da rede (longe da rede, para a câmera da dança ficar na metade dela), lado a lado nas duplas */
@@ -412,7 +413,7 @@ export class Match {
 
   /** erro de uma IA: bola na rede (baixa) ou fora (longa/aberta); com `soft`, uma bola mansa no meio */
   private aiError(a: Ai, H: THREE.Vector3, serve: boolean, soft = false): void {
-    const pr = PROFILE[serve ? "saque" : "fh_din"], r = Math.random(); let lx = MATCH.cx + (Math.random() * 2 - 1) * 2, d = 2 + Math.random() * 3, T = pr.T, clear = true;   // d: distância da linha de fundo de quem recebe (< 0: fora)
+    const pr = PROFILE[serve ? "saque" : "fh_din"], r = Math.random(); let lx = MATCH.cx + (Math.random() * 2 - 1) * 0.5 * MATCH.halfW, d = 2 + Math.random() * 3, T = pr.T, clear = true;   // d: distância da linha de fundo de quem recebe (< 0: fora)
     if (!soft) { if (r < 0.35) { clear = false; T *= 0.6; } else if (r < 0.7) d = -(0.6 + Math.random() * 2.4); else { const sg = Math.random() < 0.5 ? -1 : 1; lx = MATCH.cx + (MATCH.lines ? sg : 1) * (MATCH.wide + Math.random() * 1.4); } }   // erro aberto; no frescobol sempre para o lado da terra (do outro lado fica o mar)
     if (a.team === 1) this.humanOwns = true;
     this.launch(H, lx, a.team === 1 ? d : MATCH.len - d, T, a.team, clear);
