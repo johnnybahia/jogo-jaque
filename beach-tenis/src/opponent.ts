@@ -63,7 +63,7 @@ export class Opponent {
     }
     R.root.position.set(this.x, 0, this.z);
     R.mixer.update(0); R.root.updateMatrixWorld(true);
-    this.fx.enabled = dw < 0.02; this.fx.update({ dt, time, ball: ball ? this.ball.set(ball.x, ball.y, ball.z) : null, vx: this.dir * this.vx, vz: this.dir * this.vz, stamina: this.stamina.value, swingW: this.swingW, react: this.react, rt: this.reactT });
+    this.fx.enabled = dw < 0.02; this.fx.update({ dt, time, ball: ball ? this.ball.set(ball.x, ball.y, ball.z) : null, vx: this.dir * this.vx, vz: this.dir * this.vz, stamina: this.stamina.value, swingW: this.swingW, react: this.react, rt: this.reactT, swT: sw ? (sw.t - sw.contactT) / Math.max(0.05, sw.s) : undefined });
     let fw = 0; if (sw) { const x = Math.max(0, 1 - Math.abs(sw.t - sw.contactT) / 0.3); fw = x * x * (3 - 2 * x); }
     R.fixRacket(fw);
     this.shadow.position.set(this.x, 0.01, this.z);

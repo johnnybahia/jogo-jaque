@@ -9,9 +9,10 @@ import type { Rig } from "./rig";
 const V = THREE.Vector3, Q = THREE.Quaternion, D2R = Math.PI / 180;
 const clamp = THREE.MathUtils.clamp, smooth = (a: number, b: number, x: number): number => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+const ARM_BONES = ["RightArm", "RightForeArm", "RightHand", "LeftArm", "LeftForeArm"];
 const SQUAT_MAX = 0.12;   // quanto o quadril pode descer abaixo da parada (unidades do jogo; o personagem tem ~1,45)
 
-export interface FxIn { dt: number; time: number; ball: THREE.Vector3 | null; vx: number; vz: number; stamina: number; swingW: number; react?: number; rt?: number; }   // react: 0 nada, 1 suspiro (errou cedo), 2 comemoração; rt: s desde o fim do ponto
+export interface FxIn { dt: number; time: number; ball: THREE.Vector3 | null; vx: number; vz: number; stamina: number; swingW: number; react?: number; rt?: number; swT?: number; }   // swT: s (de jogo) em relação ao contato do golpe em andamento (− antes, + depois); undefined sem golpe   // react: 0 nada, 1 suspiro (errou cedo), 2 comemoração; rt: s desde o fim do ponto
 
 export class PoseFX {
   enabled = true;
@@ -19,11 +20,13 @@ export class PoseFX {
   private ax: Record<string, { l: THREE.Vector3; u: THREE.Vector3; f: THREE.Vector3 }> = {};   // esquerda, cima e frente DO PERSONAGEM no referencial local de cada osso (pose de referência)
   private gazeW = 0; private yaw = 0; private pitch = 0;          // olhar suavizado: peso e ângulos do mundo (rad)
   private leanF = 0; private leanS = 0; private pvx = 0; private pvz = 0; private aF = 0; private aS = 0;
+  private armRaw: Record<string, THREE.Quaternion> = {}; private armOut: Record<string, THREE.Quaternion> = {}; private armHas = false;
+  private filt: Record<string, THREE.Quaternion> = {}; private handP = new V(); private handV = new V(); private hadHand = false; private rig: Rig;   // braços: filtro do braço esquerdo, posição e velocidade da mão da raquete
   private root: THREE.Object3D; private standY = 0;   // standY: altura do quadril na parada (referência para limitar o agachamento)
   private tmpQ = new Q(); private tmpQ2 = new Q(); private tmpV = new V(); private tmpV2 = new V(); private tmpV3 = new V(); private ident = new Q();
 
   constructor(rig: Rig, private dir = 1) {   // dir = −1: personagem virada para −z (adversária); os eixos laterais/frontais do mundo invertem
-    this.root = rig.root; this.yaw = dir === 1 ? 0 : Math.PI;   // o olhar começa para a frente do personagem
+    this.root = rig.root; this.rig = rig; this.yaw = dir === 1 ? 0 : Math.PI;   // o olhar começa para a frente do personagem
     const find = (re: RegExp): THREE.Bone | null => { let f: THREE.Bone | null = null; rig.model.traverse((o) => { if (!f && (o as THREE.Bone).isBone && re.test(o.name)) f = o as THREE.Bone; }); return f; };
     for (const k of ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head", "LeftArm", "RightArm", "LeftForeArm", "RightForeArm", "LeftHand", "RightHand", "LeftUpLeg", "RightUpLeg", "LeftLeg", "RightLeg", "LeftFoot", "RightFoot"]) this.b[k] = find(new RegExp(`${k}$`));
     // eixos de referência medidos na pose de repouso do esqueleto (todos os pesos em 0 = pose original, de pé e olhando para a frente do personagem). Antes eram
@@ -92,7 +95,7 @@ export class PoseFX {
 
   update(i: FxIn): void {
     this.root.position.y = 0;   // só a comemoração tira os pés do chão (recalculado a cada quadro)
-    if (!this.enabled) return;
+    if (!this.enabled) { this.restoreArms(); return; }
     this.squat(SQUAT_MAX);
     const { dt } = i, k = (tau: number) => 1 - Math.exp(-dt / tau);
     const tired = 1 - smooth(0.12, 0.65, i.stamina), free = 1 - i.swingW;          // free: fora dos golpes (nos golpes o clipe manda no tronco)
@@ -107,6 +110,7 @@ export class PoseFX {
     this.rot(this.b.Spine, this.axisRot(0, 0, 1, -this.leanS * 0.5 * free));
     this.rot(this.b.Spine1, this.axisRot(1, 0, 0, this.leanF * 0.3 * free + slump * 0.3 + breath * 0.5 * free));
     this.rot(this.b.Spine2, this.axisRot(1, 0, 0, this.leanF * 0.2 * free + slump * 0.3 + breath * 0.5 * free));
+    this.arms(i, free);
     // olhar: acompanha a bola quando ela existe; senão volta ao que o clipe faz
     const head = this.b.Head, neck = this.b.Neck, chest = this.b.Spine2; if (!head || !neck || !chest) return;
     const wTarget = i.ball ? 0.9 : 0; this.gazeW += (wTarget - this.gazeW) * k(0.25);
@@ -126,6 +130,60 @@ export class PoseFX {
     }
     if (tired > 0.01) this.rot(neck, this.axisRot(1, 0, 0, tired * 3 * D2R * free));   // cansada: cabeça um pouco caída
     this.react(i.react ?? 0, i.rt ?? 0, neck, head);
+  }
+
+  /** Braços mais humanos, por cima dos clipes:
+   *  · correndo, o braço da raquete (uma pose fixa nos clipes de locomoção: ficava congelado) balança no ritmo dos passos, oposto à perna do mesmo lado; parada, respira de leve;
+   *  · nos golpes, o braço esquerdo dos clipes do vídeo (ruidoso: treme e trava esticado, em "T") é suavizado e o cotovelo nunca fica travado reto;
+   *  · nos golpes, o punho da raquete (rígido nos clipes) atrasa na aceleração e solta depois da batida — exatamente zero no instante do contato, que não muda. */
+  private arms(i: FxIn, free: number): void {
+    const b = this.b, { dt } = i, k = (tau: number) => 1 - Math.exp(-dt / tau);
+    this.restoreArms();
+    for (const key of ARM_BONES) { const bone = b[key]; if (bone) (this.armRaw[key] ?? (this.armRaw[key] = new Q())).copy(bone.quaternion); }
+    this.armsBody(i, free, k);
+    for (const key of ARM_BONES) { const bone = b[key]; if (bone) (this.armOut[key] ?? (this.armOut[key] = new Q())).copy(bone.quaternion); }
+    this.armHas = true;
+  }
+  /** desfaz o que `arms` somou no último quadro, nos ossos que o animador não reescreveu (ele só grava um osso quando o valor do clipe muda: num clipe parado ou de pose fixa a soma se acumularia quadro a quadro).
+   *  Chamar também antes de medir a pose do clipe (o contato com a bola) */
+  restoreArms(): void {
+    if (!this.armHas) return; this.armHas = false;
+    for (const key of ARM_BONES) { const bone = this.b[key], out = this.armOut[key], raw = this.armRaw[key]; if (bone && out && raw && bone.quaternion.equals(out)) bone.quaternion.copy(raw); }
+  }
+  private armsBody(i: FxIn, free: number, k: (tau: number) => number): void {
+    const b = this.b, { dt } = i;
+    const m = smooth(0.5, 2.6, Math.hypot(i.vx, i.vz)) * free, c = Math.cos(2 * Math.PI * this.rig.loco.gait);
+    if (free > 0.01 && b.RightArm && b.RightForeArm) {
+      const idle = (1 - m) * free * Math.sin(i.time * 1.15) * 1.6 * D2R;
+      this.rot(b.RightArm, this.axisRot(1, 0, 0, -15 * D2R * m * c + idle)); this.rot(b.RightForeArm, this.axisRot(1, 0, 0, -8 * D2R * m * (0.5 + 0.5 * c)));
+    }
+    const w = i.swingW, la = b.LeftArm, lf = b.LeftForeArm, lh = b.LeftHand;
+    if (la && lf && lh) {
+      for (const [key, bone] of [["LeftArm", la], ["LeftForeArm", lf]] as [string, THREE.Bone][]) {
+        const f = this.filt[key] ?? (this.filt[key] = bone.quaternion.clone());
+        if (w <= 0.02) f.copy(bone.quaternion); else { f.slerp(bone.quaternion, k(0.07)); bone.quaternion.slerp(f, w); }
+      }
+      if (w > 0.02) {
+        la.updateMatrixWorld(true);
+        const A = la.getWorldPosition(new V()), B = lf.getWorldPosition(new V()), C = lh.getWorldPosition(new V()), u = A.sub(B).normalize(), v = C.sub(B).normalize();
+        const ang = Math.acos(clamp(u.dot(v), -1, 1)), over = ang - 150 * D2R;   // 180° = braço reto
+        if (over > 0) {
+          const n = new V().crossVectors(v, u); if (n.lengthSq() < 1e-4) n.crossVectors(v, this.tmpV.set(0, 0.3, this.dir)); n.normalize();   // reto demais para ter plano de dobra: dobra para a frente
+          this.rot(lf, new Q().setFromAxisAngle(n, over * 0.65 * w));
+        }
+      }
+    }
+    const hand = b.RightHand, fore = b.RightForeArm;
+    if (hand && fore) {
+      hand.updateWorldMatrix(true, false); const P = hand.getWorldPosition(this.tmpV2);
+      if (this.hadHand && dt > 1e-4) this.handV.lerp(this.tmpV.copy(P).sub(this.handP).divideScalar(dt), k(0.05)); this.handP.copy(P); this.hadHand = true;
+      const t = i.swT, sp = this.handV.length();
+      if (t !== undefined && w > 0.3 && sp > 0.5) {
+        const s = clamp(-t / 0.14, -1, 1) * (1 - smooth(0.3, 0.5, Math.abs(t))), a = clamp(sp * 2.6, 0, 24) * D2R * s * w;
+        const f = P.clone().sub(fore.getWorldPosition(new V())).normalize(), n = new V().crossVectors(f, this.handV);
+        if (Math.abs(a) > 1e-3 && n.lengthSq() > 1e-4) this.rot(hand, new Q().setFromAxisAngle(n.normalize(), -a));   // antes do contato a mão fica para trás do movimento; depois, passa à frente
+      }
+    }
   }
 
   /** estica o cotovelo: gira o antebraço em torno do cotovelo até apontar na direção do braço (amount 0..1) */

@@ -20,6 +20,8 @@ export class Loco {
   clips = new Map<string, LocoClip>();
   ready = false;
   private phase = 0; private idlePhase = 0;
+  /** fase do passo (0 = pé esquerdo pisa, 0,5 = pé direito pisa) */
+  get gait(): number { return this.phase; }
 
   /** mede velocidade natural (unidades nativas/s) e o instante do toque do pé esquerdo de cada clipe; chamar com o modelo em escala 1 */
   measure(rig: Rig, meta: Record<string, { speed_x_m_s?: number; speed_z_m_s?: number }>): void {
