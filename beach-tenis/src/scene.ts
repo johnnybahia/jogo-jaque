@@ -66,11 +66,11 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
   const sandMat = new THREE.MeshStandardMaterial({ map: sand, roughness: 1 });
   // areia: (1) variação de tom em escala grande (a textura repete a cada 4 m e isso denunciava o azulejo), (2) molhada perto do mar: escurece e fica mais lisa,
   // (3) quadra rastelada: faixas paralelas à rede e um tom um pouco mais claro dentro de 16 × 8 m (+ margem), só na partida
-  const courtMask = { value: 0 }, shelfMask = { value: 0 };   // shelfMask: 1 no frescobol (a faixa de areia ao lado do mar fica molhada e firme)
+  const courtMask = { value: 0 }, shelfMask = { value: 0 }, puddle = { rain: { value: 0 }, col: { value: new THREE.Color(0.6, 0.7, 0.8) } };   // puddle: chuva (0 a 1) e cor do céu refletida nas poças (a atmosfera atualiza)   // shelfMask: 1 no frescobol (a faixa de areia ao lado do mar fica molhada e firme)
   sandMat.onBeforeCompile = (sh) => {
-    sh.uniforms.uNoise = { value: noise }; sh.uniforms.uCourt = courtMask; sh.uniforms.uShelf = shelfMask;
+    sh.uniforms.uNoise = { value: noise }; sh.uniforms.uCourt = courtMask; sh.uniforms.uShelf = shelfMask; sh.uniforms.uRain = puddle.rain; sh.uniforms.uPud = puddle.col;
     sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying vec3 vWp;").replace("#include <begin_vertex>", "#include <begin_vertex>\nvWp = (modelMatrix * vec4(transformed, 1.0)).xyz;");
-    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWp; uniform sampler2D uNoise; uniform float uCourt; uniform float uShelf;")
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying vec3 vWp; uniform sampler2D uNoise; uniform float uCourt; uniform float uShelf; uniform float uRain; uniform vec3 uPud;")
       .replace("#include <map_fragment>", `#include <map_fragment>
         vec2 wxz = vWp.xz;
         float macro = texture2D(uNoise, wxz * 0.011).r * 0.6 + texture2D(uNoise, wxz * 0.047 + 0.37).g * 0.4;
@@ -78,8 +78,13 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
         float wet = 1.0 - smoothstep(${(SHORE.x0 - 8).toFixed(1)}, ${(SHORE.x0 + 2).toFixed(1)}, vWp.x); wet = max(wet, uShelf * (1.0 - smoothstep(${(SHORE.x0 - 6).toFixed(1)}, ${(SHORE.x0 + 3).toFixed(1)}, vWp.x))); diffuseColor.rgb *= mix(1.0, 0.55, wet);
         float inX = 1.0 - smoothstep(4.9, 6.6, abs(wxz.x)); float inZ = smoothstep(-2.6, -0.9, wxz.y) * (1.0 - smoothstep(16.9, 18.6, wxz.y));
         float court = inX * inZ * uCourt; float rake = 0.5 + 0.5 * sin(wxz.y * 41.0 + 1.3 * sin(wxz.x * 2.3));
-        diffuseColor.rgb *= 1.0 + court * (0.05 + 0.05 * (rake - 0.5));`)
-      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n roughnessFactor *= mix(1.0, 0.6, wet);");
+        diffuseColor.rgb *= 1.0 + court * (0.05 + 0.05 * (rake - 0.5));
+        // chuva: poças rasas e esparsas (manchas de ruído), escuras, lisas e com a cor do céu
+        float pn = texture2D(uNoise, wxz * 0.06 + 0.11).g * 0.7 + texture2D(uNoise, wxz * 0.21 + 0.53).r * 0.3;   // manchas de ~1 a 3 m
+        float puddle = smoothstep(0.60, 0.63, pn) * uRain;
+        diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.38 + uPud * 0.1, puddle * 0.9);   // mais escura que a areia molhada (com muito céu ficava da mesma claridade e sumia); o brilho vem da superfície lisa`)
+      .replace("#include <normal_fragment_maps>", "#include <normal_fragment_maps>\n normal = normalize(mix(normal, nonPerturbedNormal, puddle));")
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\n roughnessFactor *= mix(1.0, 0.6, wet); roughnessFactor = mix(roughnessFactor, 0.07, puddle);");
   };
   const floor = new THREE.Mesh(buildSandGeometry(), sandMat); floor.receiveShadow = true; scene.add(floor);
   // texturas PBR de areia (Poly Haven "aerial_beach_01", CC0) — opcionais: se faltarem, fica a procedural
@@ -90,7 +95,7 @@ export function buildEnvironment(scene: THREE.Scene, base: string, renderer: THR
     tl.load(base + "textures/sand_nor.jpg", (n) => { sandMat.normalMap = rep(n, false); sandMat.normalScale.set(0.8, 0.8); sandMat.needsUpdate = true; });
     tl.load(base + "textures/sand_rough.jpg", (r) => { sandMat.roughnessMap = rep(r, false); sandMat.needsUpdate = true; });
   });
-  const atmosphere = new Atmosphere({ renderer, fog, hemi, sun, fill, sky, sea, far, near, sand: sandMat });
+  const atmosphere = new Atmosphere({ renderer, fog, hemi, sun, fill, sky, sea, far, near, sand: sandMat, puddle });
 
   const faceTex = canvasTex(512, 256, (c) => {
     c.fillStyle = "#f4f1ea"; c.fillRect(0, 0, 512, 256);

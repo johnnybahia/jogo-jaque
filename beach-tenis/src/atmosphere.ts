@@ -41,7 +41,7 @@ export const ATMOS: Atmos[] = [
     fog: L(0.02, 0.03, 0.06), fogNear: 30, fogFar: 160,
     sunLight: H(0xdfe8ff), sunI: 1.6, skyFill: H(0x3a4a78), groundFill: H(0x4a4238), hemiI: 0.55, front: H(0xcfd8ff), frontI: 0.65,
     seaDeep: L(0.002, 0.008, 0.02), seaShallow: L(0.01, 0.03, 0.05), ridgeFar: H(0x0e1424), ridgeNear: H(0x0c1016),
-    cloud: L(0.06, 0.07, 0.1), cloudAmt: 0.35, exposure: 1, sand: L(0.85, 0.88, 1), haze: 180, rim: 0.5,
+    cloud: L(0.06, 0.07, 0.1), cloudAmt: 0.35, exposure: 1, sand: L(0.3, 0.32, 0.4), haze: 180, rim: 0.5,
   },
 ];
 export const ATMOS_NAMES = ["Manhã", "Tarde", "Pôr do sol", "Noite"];
@@ -60,7 +60,7 @@ function mixInto(out: Atmos, a: Atmos, b: Atmos, k: number): void {
 
 export interface AtmosParts {
   renderer: THREE.WebGLRenderer; fog: THREE.Fog; hemi: THREE.HemisphereLight; sun: THREE.DirectionalLight; fill: THREE.DirectionalLight;
-  sky: { mesh: THREE.Mesh; u: SkyUniforms }; sea: { mesh: THREE.Mesh; u: SeaUniforms }; far: { u: RidgeUniforms }; near: { u: RidgeUniforms }; sand: THREE.MeshStandardMaterial;
+  sky: { mesh: THREE.Mesh; u: SkyUniforms }; sea: { mesh: THREE.Mesh; u: SeaUniforms }; far: { u: RidgeUniforms }; near: { u: RidgeUniforms }; sand: THREE.MeshStandardMaterial; puddle?: { rain: { value: number }; col: { value: THREE.Color } };
 }
 
 export class Atmosphere {
@@ -113,6 +113,6 @@ export class Atmosphere {
     p.hemi.color.copy(c.skyFill); p.hemi.groundColor.copy(c.groundFill); p.hemi.intensity = c.hemiI;
     p.sun.color.copy(c.sunLight); p.sun.intensity = c.sunI; p.sun.position.copy(this.lightDir).multiplyScalar(60).add(p.sun.target.position);
     p.fill.color.copy(c.front); p.fill.intensity = c.frontI;
-    p.sand.color.copy(c.sand); p.sand.roughness = 1 - 0.3 * this.wR; p.renderer.toneMappingExposure = c.exposure;
+    p.sand.color.copy(c.sand); p.sand.roughness = 1 - 0.3 * this.wR; if (p.puddle) { p.puddle.rain.value = this.wR; p.puddle.col.value.copy(c.horizon); } p.renderer.toneMappingExposure = c.exposure;
   }
 }

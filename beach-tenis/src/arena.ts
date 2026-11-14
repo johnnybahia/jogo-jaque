@@ -24,6 +24,7 @@ export class Arena {
   readonly group = new THREE.Group();
   private u = { uTime: { value: 0 }, uCheer: { value: 0 } };
   private bodies: THREE.InstancedMesh; private heads: THREE.InstancedMesh; private total = 0; private lamp: THREE.MeshStandardMaterial; private cheerV = 0;
+  private flood = new THREE.Group(); private beamU = { uA: { value: 0 } }; private poolMat!: THREE.MeshBasicMaterial; private glowMat!: THREE.SpriteMaterial;   // refletores acesos (só à noite): clarão nas lâmpadas, fachos e a mancha de luz na quadra
 
   constructor() {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
@@ -53,6 +54,25 @@ export class Arena {
     }
     this.group.add(new THREE.Mesh(mergeGeometries(poles), new THREE.MeshStandardMaterial({ color: 0x4a515c, roughness: 0.7, metalness: 0.3 })));
     this.lamp = new THREE.MeshStandardMaterial({ color: 0xdfe6f2, emissive: 0xeaf1ff, emissiveIntensity: 0.1, roughness: 0.5 }); this.group.add(new THREE.Mesh(mergeGeometries(lamps), this.lamp));
+    // refletores acesos: tudo aditivo e sem luz de verdade (uma luz a mais custaria em cada pixel da tela no celular; quem ilumina as atletas é a luz geral da noite, que vem do alto)
+    const radial = (stops: [number, string][]): THREE.Texture => { const c = document.createElement("canvas"); c.width = c.height = 128; const x = c.getContext("2d")!, gr = x.createRadialGradient(64, 64, 2, 64, 64, 63); for (const [o, col] of stops) gr.addColorStop(o, col); x.fillStyle = gr; x.fillRect(0, 0, 128, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
+    this.poolMat = new THREE.MeshBasicMaterial({ map: radial([[0, "rgba(255,255,255,1)"], [0.45, "rgba(255,255,255,0.75)"], [0.8, "rgba(255,255,255,0.22)"], [1, "rgba(255,255,255,0)"]]), color: 0xa9c2ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(26, 34).rotateX(-Math.PI / 2), this.poolMat); pool.position.set(0, 0.004, 8); pool.renderOrder = 1; this.flood.add(pool);
+    // facho: cone aditivo que some nas bordas (visto de lado) e perto do chão, para parecer luz no ar e não um sólido
+    const beamMat = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false, uniforms: this.beamU,
+      vertexShader: `varying vec3 vN; varying vec3 vV; varying float vH; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); vH = uv.y; gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `uniform float uA; varying vec3 vN; varying vec3 vV; varying float vH; void main(){ float e = pow(abs(dot(normalize(vN), normalize(vV))), 2.2); float a = uA * e * smoothstep(0.0, 0.45, vH) * (0.35 + 0.65 * vH); gl_FragColor = vec4(vec3(0.79, 0.86, 1.0) * a, a); }`,
+    });
+    this.glowMat = new THREE.SpriteMaterial({ map: radial([[0, "rgba(255,255,255,1)"], [0.25, "rgba(255,255,255,0.55)"], [1, "rgba(255,255,255,0)"]]), color: 0xdfe9ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, fog: false });
+    const beams: THREE.BufferGeometry[] = [];
+    for (const [x, z] of [[-6.9, 0.3], [6.9, 0.3], [-6.9, 15.7], [6.9, 15.7]]) {
+      const top = new THREE.Vector3(x, 9.0, z), aim = new THREE.Vector3(x * 0.3, 0, 8 + (z - 8) * 0.45), dir = top.clone().sub(aim), len = dir.length();
+      beams.push(new THREE.ConeGeometry(2.6, len, 24, 1, true).applyQuaternion(new THREE.Quaternion().setFromUnitVectors(up, dir.normalize())).translate((top.x + aim.x) / 2, (top.y + aim.y) / 2, (top.z + aim.z) / 2));
+      const sp = new THREE.Sprite(this.glowMat); sp.position.copy(top); sp.scale.setScalar(3.2); this.flood.add(sp);
+    }
+    const bm = new THREE.Mesh(mergeGeometries(beams), beamMat); bm.renderOrder = 7; this.flood.add(bm);
+    this.flood.visible = false; this.group.add(this.flood);
     // torcida: sentados nos degraus; a ordem é embaralhada para que desenhar menos gente (qualidade) esvazie por igual
     for (let i = seats.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [seats[i], seats[j]] = [seats[j], seats[i]]; }
     const sway = (mat: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial => {
@@ -86,5 +106,6 @@ export class Arena {
     if (!this.group.visible) return;
     this.u.uTime.value += dt; this.cheerV *= Math.exp(-dt / 0.9); this.u.uCheer.value = this.cheerV;
     this.lamp.emissiveIntensity = 0.1 + 3.2 * night;
+    this.flood.visible = night > 0.02; this.poolMat.opacity = 0.75 * night; this.beamU.uA.value = 0.45 * night; this.glowMat.opacity = 0.9 * night;
   }
 }
