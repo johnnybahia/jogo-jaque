@@ -669,7 +669,7 @@ export class Game {
     if (S.stamina) this.stamina.drain(sw.kind === "serve" ? 0.02 : sw.kind === "over" || sw.kind === "smash" ? 0.03 : 0.012);   // bater cansa (golpes por cima mais)
     const act = this.swingAct!; act.time = Math.min(sw.contactT, sw.duration - 1e-3);
     this.rig.root.position.set(sw.x1, 0, sw.z1); if (Math.hypot(sw.x1 - sw.x0, sw.z1 - sw.z0) > 0.25) this.dust.puff(sw.x1, sw.z1, 3.2);   // freada do golpe
-    this.rig.mixer.update(0); this.rig.root.updateMatrixWorld(true); this.rig.fixRacket(this.rig.faceAssist); this.rig.root.updateMatrixWorld(true);
+    this.fx?.restoreArms(); this.rig.mixer.update(0); this.rig.root.updateMatrixWorld(true); this.rig.fixRacket(this.rig.faceAssist); this.rig.root.updateMatrixWorld(true);
     const H = new THREE.Vector3(); this.rig.head.getWorldPosition(H);
     const b = this.ball; const B = new THREE.Vector3(b.x, b.y, b.z); const gap = H.distanceTo(B);
     this.emit("contact", { clip: sw.clip, gap_cm: Math.round(gap * 100), dy_cm: Math.round((B.y - H.y) * 100), err_ms: Math.round(sw.err * 1000), whiff: sw.whiff, hit: gap <= S.hitRadius, ball: [b.x, b.y, b.z].map((v) => +v.toFixed(2)), head: [H.x, H.y, H.z].map((v) => +v.toFixed(2)), plan: sw.plan, pw: +pw.toFixed(2) });
@@ -833,7 +833,7 @@ export class Game {
     if (this.fx) {   // vida do personagem por cima do clipe (olhar na bola, respiração, inclinação); fora na galeria
       this.fx.enabled = !this.viewer && dw < 0.02; R.root.updateMatrixWorld(true);
       const live = (this.state === "rally" || this.state === "serve") && this.ballMesh.visible;
-      this.fx.update({ dt, time: this.time, ball: live ? this.fxBall.set(this.ball.x, this.ball.y, this.ball.z) : null, vx: this.vx, vz: this.vz, stamina: S.stamina ? this.stamina.value : 1, swingW: this.swingW, react: this.state === "dead" ? this.react : 0, rt: this.reactT });
+      this.fx.update({ dt, time: this.time, ball: live ? this.fxBall.set(this.ball.x, this.ball.y, this.ball.z) : null, vx: this.vx, vz: this.vz, stamina: S.stamina ? this.stamina.value : 1, swingW: this.swingW, react: this.state === "dead" ? this.react : 0, rt: this.reactT, swT: this.swing && !this.swing.preview ? (this.swing.t - this.swing.contactT) / Math.max(0.05, this.swing.s) : undefined });
     }
     const sw = this.swing; let fw = 0;
     if (sw) { const x = Math.max(0, 1 - Math.abs(sw.t - sw.contactT) / 0.3); fw = x * x * (3 - 2 * x) * S.faceAssist; }

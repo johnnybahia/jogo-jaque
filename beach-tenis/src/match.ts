@@ -344,7 +344,7 @@ export class Match {
   contact(a: Ai, sw: OppSwing): void {
     const g = this.g, o = a.o, R = o.rig, b = g.ball, p = a.plan; this.pressure = 0;
     o.x = sw.x1; o.z = sw.z1; const act = o.swingAct!; act.time = Math.min(sw.contactT, sw.duration - 1e-3);
-    R.root.position.set(o.x, 0, o.z); R.mixer.update(0); R.root.updateMatrixWorld(true); R.fixRacket(1); R.root.updateMatrixWorld(true);
+    o.fx.restoreArms(); R.root.position.set(o.x, 0, o.z); R.mixer.update(0); R.root.updateMatrixWorld(true); R.fixRacket(1); R.root.updateMatrixWorld(true);
     const H = o.racketHead(this.tmp), gap = Math.hypot(H.x - b.x, H.y - b.y, H.z - b.z);
     g.emit("opp", { clip: sw.clip, gap_cm: Math.round(gap * 100), whiff: sw.whiff, serve: sw.serve, by: a.o.name });
     if (!sw.serve && (sw.whiff || gap > 0.55)) { a.plan = null; if (sw.whiff) this.stats.whiff++; else this.stats.miss++; return; }
