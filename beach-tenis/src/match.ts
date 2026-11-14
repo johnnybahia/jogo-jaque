@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { NEED_OK, NEED_RELAX } from "./game";
+import { NEED_MAX } from "./game";
 import type { Game, Cand } from "./game";
 import type { Opponent, OppSwing } from "./opponent";
 import { Score, Format, Side } from "./rules";
@@ -12,11 +12,11 @@ import { fitCost, FIT } from "./fit";
 import { coopLevel } from "./coop";
 
 /** nível da adversária: velocidade máxima (m/s), tempo de reação (s), chance de errar, quão difícil ela coloca a bola (× alcance), esperteza (deixa passar bola fora); tf = tempo de voo dos golpes dela (s), só no Frescobol */
-export interface Level { id: string; label: string; speed: number; react: number; err: number; diff: number; smart: number; reach: number; tf?: [number, number]; }
+export interface Level { id: string; label: string; speed: number; react: number; err: number; diff: number; smart: number; reach: number; antic: number; tf?: [number, number]; }   // antic: quanto ela lê o golpe da jogadora antes da batida e já vai para onde a bola vai cair (0 a 1)
 export const LEVELS: Record<string, Level> = {
-  facil: { id: "facil", label: "Fácil", speed: 2.6, react: 0.4, err: 0.2, diff: 0.55, smart: 0.45, reach: 1.0 },
-  medio: { id: "medio", label: "Médio", speed: 3.1, react: 0.25, err: 0.11, diff: 0.85, smart: 0.8, reach: 1.4 },
-  dificil: { id: "dificil", label: "Difícil", speed: 3.6, react: 0.14, err: 0.05, diff: 1.1, smart: 0.95, reach: 1.8 },
+  facil: { id: "facil", label: "Fácil", speed: 2.6, react: 0.4, err: 0.2, diff: 0.4, smart: 0.45, reach: 1.0, antic: 0.3 },
+  medio: { id: "medio", label: "Médio", speed: 3.3, react: 0.25, err: 0.11, diff: 0.83, smart: 0.8, reach: 1.4, antic: 0.75 },
+  dificil: { id: "dificil", label: "Difícil", speed: 3.6, react: 0.14, err: 0.05, diff: 0.9, smart: 0.95, reach: 1.8, antic: 0.9 },
 };
 
 /** perfil de cada golpe: tempo de voo (s) e quão fundo (m depois da rede) a bola cai */
@@ -34,7 +34,7 @@ export const inCourt = (x: number, z: number): boolean => Math.abs(x - MATCH.cx)
 
 /** s depois do último ponto da partida em que as vencedoras começam a ir ao ponto de comemoração */
 export const CELEB_AT = 0.7;
-const PLAYER_WIND = 0.6;
+const PLAYER_WIND = 0.6, AI_COST = 0.6;   // AI_COST: fração do fôlego que a corrida custa à IA (ela corre mais que a jogadora: antecipa e cobre a quadra toda; com o custo cheio zerava o fôlego nos ralis longos e parava de defender)
 /** execução do golpe da jogadora: janelas de tempo (s, as mesmas do "Perfeito"/"Bom" de game.ts), desvio lateral (m) e do ângulo de saída (rad) por unidade de erro além do "Perfeito" (1 = limite do "Bom") */
 const TIME_PERF = 0.07, TIME_GOOD = 0.16, PULL = 1.2, ELEV = 0.12, LONG = 2.5;   // LONG: m a mais de profundidade da bola batida tarde (face aberta)
 const OVERHEAD = new Set(["smash", "gancho", "veronica", "espeto"]);   // por cima da cabeça: sem versão lob/curtinha
@@ -374,14 +374,18 @@ export class Match {
     const g = this.g, lv = a.lvl, pl = g.rig.root.position, b = g.ball, H = new THREE.Vector3(b.x, b.y, b.z), ts = S.timeScale, net = MATCH.netZ, rnd = (x: number, y: number) => x + (y - x) * Math.random();
     if (error) { this.stats.err++; this.aiError(a, H, serve); return; }
     const mulP = 0.5 + 0.5 * g.speedMul(), reachP = g.reachR(), lock = g.lockLeft(), keys = MATCH.strokes ? Object.keys(INTENT_W).filter((k) => MATCH.strokes!.includes(k)) : Object.keys(INTENT_W), out = a.team === 1 && this.humanOut(), foes = out ? [{ human: true } as Target] : this.targetsOf(a.team, serve);
+    // tática (só contra a jogadora, com a chance do nível): em vez de um lado qualquer, a bola vai para a quadra aberta (longe de onde ela está; se está no meio, no contrapé da corrida dela),
+    // curta se ela está lá no fundo e por cima se ela subiu à rede
+    const tact = !serve && Math.random() < lv.smart * 0.7, off = pl.x - MATCH.cx, open = Math.abs(off) > 0.8 ? -Math.sign(off) : Math.abs(g.vx) > 0.8 ? -Math.sign(g.vx) : Math.random() < 0.5 ? -1 : 1;
+    const tTh = pl.z < 1.0 && Math.random() < 0.3 ? open * 0.7 : pl.z > 4.5 && Math.random() < 0.5 ? Math.PI - open * 0.7 : open * Math.PI / 2;
     for (let at = 0; at < 40; at++) {
       const tg = foes[foes.length > 1 && (at % 4 === 3 || (at >= 24 && at % 2 === 1)) ? 1 : 0], ta = tg.ai, td = ta ? ta.o.dir : 1, tp: { x: number; z: number } = ta ? ta.o : out ? this.homeOfHuman() : pl;   // td: para onde o alvo olha
       const key = keys[(Math.random() * keys.length) | 0], list = g.candList(key); if (!list.length) continue;
       const c = list[(Math.random() * list.length) | 0], Tf = serve ? rnd(1.25, 1.5) : rnd(lv.tf?.[0] ?? 0.95, lv.tf?.[1] ?? 1.4) * (c.cy >= 1.6 ? 1.1 : 1);
       let lim: number, shiftMax: number;
       if (ta) { lim = this.cap(ta) * (at < 28 ? 0.8 : 1); shiftMax = Math.min(3.4, ta.lvl.reach + lim * Math.max(0.15, Tf - ta.lvl.react - 0.6 * c.prep / ts - 0.1)); }
-      else { lim = (at < 28 ? NEED_OK : NEED_RELAX) * mulP; shiftMax = Math.min(3.4, reachP + lim * Math.max(0.15, Tf - lock - c.prep / ts - 0.1)); }
-      const shift = shiftMax * Math.min(1.3, lv.diff * MATCH.diffK * rnd(0.15, 1.05)), th = rnd(0, 2 * Math.PI);
+      else { lim = NEED_MAX * mulP; shiftMax = Math.min(4.2, reachP + lim * Math.max(0.15, Tf - lock - c.prep / ts - 0.1)); }   // o limite é a corrida MÁXIMA dela: `diff` do nível diz que fração disso a bola exige (acima de 1, bola vencedora). Antes o limite era um trote (NEED_OK) e nenhum nível ganhava ponto por mérito
+      const tc = tact && !ta && at < 24, shift = shiftMax * Math.min(1.3, lv.diff * MATCH.diffK * rnd(tc ? 0.6 : 0.15, 1.05)), th = tc ? tTh + rnd(-0.5, 0.5) : rnd(0, 2 * Math.PI);
       const px = MATCH.cx + clamp(tp.x + shift * Math.sin(th) - MATCH.cx, -MATCH.aimAiX, MATCH.aimAiX), pz = net - td * clamp(td * (net - (tp.z + shift * Math.cos(th))), 1.2, MATCH.aimBack);   // o alvo fica na metade dele da quadra
       const C = new THREE.Vector3(px + td * c.cx, c.cy, pz + td * c.cz);
       if (fitCost(c.key, c.cy, -td * (C.x - tp.x), td * (C.z - tp.z)) > (at < 20 ? 0.3 : at < 32 ? 0.9 : 1e9)) continue;   // a bola chega do lado e na altura em que esse golpe é o certo para ele
@@ -439,7 +443,7 @@ export class Match {
   /** chamar todo quadro da partida (antes de a física andar) */
   update(dt: number): void {
     const g = this.g;
-    for (const a of this.ais) { const o = a.o; if (S.stamina && !this.fresco) o.stamina.update(dt, Math.hypot(o.vx, o.vz), g.state !== "rally"); else o.stamina.reset(); o.reactT += dt; }
+    for (const a of this.ais) { const o = a.o; if (S.stamina && !this.fresco) o.stamina.update(dt, AI_COST * Math.hypot(o.vx, o.vz), g.state !== "rally"); else o.stamina.reset(); o.reactT += dt; }
     if (g.state === "serve" && this.serveAi) { this.serveStep(this.serveAi, dt); for (const a of this.ais) if (a !== this.serveAi) this.goHome(a, dt); return; }
     if (g.state === "rally") { this.rally(dt); return; }
     for (const a of this.ais) {   // fora do rali: acaba o golpe e volta ao lugar de saque (depois da reação)
@@ -475,7 +479,13 @@ export class Match {
       if (g.time >= a.plan.startAt) { this.startSwing(a, a.plan); return; }
       this.moveTo(a, a.plan.x1, a.plan.z1, g.time - a.hitAt < lv.react ? 0 : cap, dt);
     } else if (a.chase) this.moveTo(a, MATCH.cx + clamp(b.x - MATCH.cx, -MATCH.runX, MATCH.runX), net - dir * clamp(dir * (net - b.z), 1, MATCH.back - 1), g.time - a.hitAt < lv.react ? 0 : cap, dt);   // não alcança: corre atrás
-    else { const f = this.formation(a); this.moveTo(a, f.x, f.z, cap * 0.7, dt); }                                                                           // depois do golpe, deixando passar ou sem a bola: volta à formação
+    else {
+      const f = this.formation(a), L = !this.doubles && !this.fresco && a.team === 1 && lv.antic > 0 ? g.landing() : null;
+      if (L) {   // antecipação (single): a jogadora já armou o golpe — a adversária lê a colocação e vai fechando o lado e a profundidade (o nível decide o quanto; mudar o direcional em cima da hora ainda engana)
+        f.x += lv.antic * (clamp(L.x, MATCH.cx - MATCH.aiRunX, MATCH.cx + MATCH.aiRunX) - f.x); f.z += 0.6 * lv.antic * (clamp(L.z, net + 1.5, MATCH.len - 1.5) - f.z);
+      }
+      this.moveTo(a, f.x, f.z, cap * 0.7, dt);
+    }                                                                           // depois do golpe, deixando passar ou sem a bola: volta à formação
   }
 
   /** o relógio dos golpes das IAs durante o rali anda no Game.advance; este é o golpe que chega primeiro ao contato (tempo em s) ou null */

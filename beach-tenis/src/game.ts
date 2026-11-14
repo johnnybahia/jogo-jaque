@@ -853,12 +853,20 @@ export class Game {
   /** profundidade do golpe (−1 curta a 1 funda): o direcional para a frente/trás de agora, ou o último empurrão (como a mira lateral) */
   private depthOf(sw: Swing): number { const f = this.input.fwd; return Math.abs(f) <= 0.35 && sw.t0 !== undefined && this.aimDT >= sw.t0 - this.aimPre ? this.aimDV : f; }
 
+  /** partida, durante o balanço da jogadora (antes do contato): onde a bola dela deve cair com a colocação, o tempo e a força de agora; null fora disso. O marcador de queda desenha isto e a adversária lê (antecipação) */
+  private landAt = -1; private landV: { x: number; z: number; rx: number; rz: number; inside: number } | null = null;
+  landing(): { x: number; z: number; rx: number; rz: number; inside: number } | null {
+    const sw = this.swing; if (!this.match || !sw || sw.contacted || sw.whiff || sw.preview || sw.D === undefined || this.state !== "rally") return null;
+    if (this.landAt !== this.time) { this.landAt = this.time; this.landV = this.match.preview(sw.clip, qualityOf(sw.err), sw.err, this.aimOf(sw), this.depthOf(sw), S.force ? powerOf(this.holdFrac(sw)) : 0, sw.x1, sw.z1); }
+    return this.landV;
+  }
+
   /** partida, durante o balanço: marcador de queda na quadra adversária (mira do direcional + tempo + força) e barra de força na tela */
   private aimTick(dt: number): void {
     const sw = this.swing, on = !!this.match && S.force && !!sw && !sw.contacted && !sw.whiff && !sw.preview && sw.D !== undefined && this.state === "rally";
     if (!on) { this.aimMark.update(null, dt); this.onPower(null); return; }
     const f = this.holdFrac(sw!), pw = powerOf(f);
-    this.aimMark.update(this.match!.preview(sw!.clip, qualityOf(sw!.err), sw!.err, this.aimOf(sw!), this.depthOf(sw!), pw, sw!.x1, sw!.z1), dt); this.onPower({ f, pw, hold: !!sw!.hold });
+    this.aimMark.update(this.landing(), dt); this.onPower({ f, pw, hold: !!sw!.hold });
   }
 
   private setCamera(snap: boolean, dt = 0.016): void {
