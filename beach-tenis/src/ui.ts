@@ -170,8 +170,10 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     const QD: Record<string, string> = { alta: "sombras nítidas, bloom e cor de cinema", media: "sombras do sol e vinheta", baixa: "sem sombras do sol, sem nuvens" };
     const qshow = () => { qn.textContent = `Agora: ${game.quality.label()} — ${QD[game.quality.tier]}`; };
     qs.onchange = () => { game.quality.set(qs.value as Choice); qshow(); }; qshow(); panel.appendChild(ql);
-    const tl = document.createElement("label"); tl.innerHTML = `<span>Hora do dia<select><option value="0">Avança com a partida</option><option value="1">Manhã</option><option value="2">Tarde</option><option value="3">Pôr do sol</option></select></span>`;
+    const tl = document.createElement("label"); tl.innerHTML = `<span>Hora do dia<select><option value="0">Avança com a partida</option><option value="1">Manhã</option><option value="2">Tarde</option><option value="3">Pôr do sol</option><option value="4">Noite</option></select></span>`;
     const ts = tl.querySelector("select")!; ts.value = String(S.tod); ts.onchange = () => { S.tod = Number(ts.value); saveSettings(); }; panel.appendChild(tl);
+    const kl = document.createElement("label"); kl.innerHTML = `<span>Clima na partida<select><option value="0">Sorteia a cada partida</option><option value="1">Céu limpo</option><option value="2">Nublado</option><option value="3">Chuva</option></select></span><small>vale a partir da próxima partida na quadra; na chuva todas correm 10% menos</small>`;
+    const ks = kl.querySelector("select")!; ks.value = String(S.weather); ks.onchange = () => { S.weather = Number(ks.value); saveSettings(); }; panel.appendChild(kl);
     const wl = document.createElement("label"); wl.innerHTML = `<span>Vento na partida<select><option value="0">Sem vento</option><option value="1">Sorteia a cada partida</option><option value="2">Brisa (~2 m/s)</option><option value="3">Forte (~4,5 m/s)</option></select></span><small>vale a partir da próxima partida na quadra; treino e frescobol não têm vento</small>`;
     const ws = wl.querySelector("select")!; ws.value = String(S.wind); ws.onchange = () => { S.wind = Number(ws.value); saveSettings(); }; panel.appendChild(wl);
     const gh = document.createElement("h3"); gh.textContent = "Golpes do vídeo (toque para ver)"; panel.appendChild(gh);
