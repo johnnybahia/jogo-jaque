@@ -14,8 +14,9 @@ import { Fx, type Swinger } from "./fx";
 import { Props } from "./props";
 import { CueMarker } from "./cuemark";
 import { AimMark, PowerView } from "./power";
-import { STROKES, strokeOf, INTENT_W, FOLLOW, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
+import { STROKES, strokeOf, INTENT_W, SERVE_CLIP, SERVE_FOLLOW, SERVE_START, TOSS_REL, tossApex } from "./strokes";
 import { Stamina } from "./stamina";
+import { Sfx } from "./audio";
 import { fitCost } from "./fit";
 import { PoseFX } from "./posefx";
 import { WallFx } from "./wallfx";
@@ -28,6 +29,8 @@ import { Match, LEVELS, ScoreView, inCourt, CELEB_AT } from "./match";
 import { FORMATS, PointResult, Side } from "./rules";
 import { Ball, BALL_R, G, Sample, Tun, heightAtWall, newBall, predict, solveShot, stepBall } from "./physics";
 
+const PLAYER_FOLLOW = 0.28, WHIFF_FOLLOW = 0.1, CAM_BACK = 1.5;   // s de clipe em que a jogadora ainda fica presa depois do contato (golpe certo / em branco; a IA segue com FOLLOW) e s sem tocar na câmera até o giro voltar sozinho no rali
+const wrapA = (a: number): number => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
 const MAX_SPEED = 3.4, MAX_SIDE = 3.0, MAX_BACK = 2.6;   // m/s: frente, lado, ré (a ré é mais lenta, como no jogo de verdade)
 const NO_EV: Ev[] = [];
 interface Ev { clip: string; kind: string; key: string; prep: number; x1: number; z1: number; shift: number; need: number; dy: number; }
@@ -35,7 +38,7 @@ export interface Cand { clip: string; kind: string; key: string; prep: number; c
 const DEFAULT_CAND: Cand = { clip: "", kind: "ground", key: "fh_din", prep: 0.55, cx: -0.3, cy: 1.2, cz: 0.5 };   // se os clipes do vídeo não carregaram
 /** saque: a bola sai da mão esquerda em `rel` (s do clipe) e sobe em arco até o ponto de contato com a raquete (mão em h*, contato em c*, mundo) */
 interface Toss { rel: number; apex: number; hx: number; hy: number; hz: number; cx: number; cy: number; cz: number; }
-interface Swing { toss?: Toss; startT: number; endT: number; clip: string; s: number; contactT: number; t: number; duration: number; x0: number; z0: number; x1: number; z1: number; contacted: boolean; kind: string; plan?: number[]; err: number; whiff: boolean; msg?: string; preview?: boolean; t0?: number; D?: number; hold?: boolean; rel?: number; }   // t0/D: relógio do jogo no começo do golpe e s até o contato; hold/rel: GOLPE ainda apertado e quando soltou (força)
+interface Swing { toss?: Toss; startT: number; endT: number; clip: string; s: number; contactT: number; t: number; duration: number; x0: number; z0: number; x1: number; z1: number; contacted: boolean; kind: string; plan?: number[]; err: number; whiff: boolean; msg?: string; preview?: boolean; t0?: number; D?: number; hold?: boolean; rel?: number; blend?: number; }   // blend: s para o golpe tomar o corpo (mais longo quando ela ainda dá passos até a bola); t0/D: relógio do jogo no começo do golpe e s até o contato; hold/rel: GOLPE ainda apertado e quando soltou (força)
 /** próxima rebatida: onde a jogadora deve estar, quando a bola chega e quando apertar GOLPE (tempos no relógio do jogo) */
 interface Cue { arrival: number; press: number; prep: number; x1: number; z1: number; smp: Sample; clip: string; kind: string; key: string; shift: number; cost: number; }
 export interface CueView { ttp: number; reach: boolean; win: number; label: string; out?: boolean; }
@@ -83,6 +86,7 @@ export class Game {
   lastLaunch: { pass: number; want: string | null; ms: number } | null = null;   // diagnóstico: como a última bola foi escolhida
   intent: string | null = null; recent: string[] = [];   // golpe (chave de STROKES) que a bola lançada prepara; últimos golpes usados (variedade)
   cam: CamPose = CAMS.get(); camEdit = false;   // câmera em órbita em torno da jogadora: giro (360°), inclinação e distância (zoom); começa na câmera escolhida (camera.ts); camEdit: tela de ajuste da câmera
+  readonly sfx = new Sfx(); camHeld = false; private slideVx = 0; private slideVz = 0;   // som e vibração; dedo na câmera agora; velocidade dos passos de ajuste durante o golpe
   vx = 0; vz = 0; phase = 0; idlePhase = 0; alt = 0;
   log: LogEntry[] = [];
   onToast: (m: string, sub?: string, ms?: number) => void = () => {};   // ms: quanto tempo fica na tela (padrão 0,9 s; 1,3 s com 2ª linha)
@@ -144,11 +148,11 @@ export class Game {
     this.swing = null; this.state = "wait"; this.rally = 0; this.cue = null; this.lastCue = null; this.ballMesh.visible = false; this.ballShadow.visible = false;
     this.rig.root.position.set(MATCH.cx, 0, 0); this.vx = this.vz = 0; this.foot.clear();
     if (m) this.opp?.place(MATCH.cx, MATCH.len);
-    this.applyCam(); this.setCamera(true); this.onHud();
+    this.applyCam(); this.setCamera(true); this.onHud(); this.sfx.ambience(this.fresco ? 1 : 0.6);
   }
 
   /** a bola caiu na água (frescobol): respingo e a bola some */
-  splash(x: number, z: number): void { this.vfx.splash(x, z); this.ballMesh.visible = false; this.ballShadow.visible = false; }
+  splash(x: number, z: number): void { this.vfx.splash(x, z); this.sfx.splash(); this.ballMesh.visible = false; this.ballShadow.visible = false; }
 
   /** onde ela espera o ponto: no treino, o centro atrás da linha de fundo; na partida, depende de quem saca */
   homePos(): { x: number; z: number } { return this.match ? this.match.homeOfHuman() : HOME; }
@@ -201,7 +205,7 @@ export class Game {
     const b = this.coopBest(), time = n >= 5 && b.secs >= 10 && secs > b.secs, rec = this.coopNew || time; if (secs > b.secs) b.secs = secs;
     this.coopLast = { hits: n, secs }; saveCoop(this.coop);
     this.onToast(rec ? "NOVO RECORDE!" : reason === "Na água!" ? reason : "Caiu!", `${n} rebatida${n === 1 ? "" : "s"} · ${fmtTime(secs)}${time && !this.coopNew ? " · recorde de tempo" : ""}`, rec ? 2400 : 1700);
-    if (rec) this.coopConfetti(n >= 20 ? 70 : 40);
+    if (rec) { this.coopConfetti(n >= 20 ? 70 : 40); this.sfx.cheer(40, 2); }
     this.emit("rally", { hits: n, secs: +secs.toFixed(1), reason, record: rec }); this.coopNew = false; this.onCoop(); this.onHud();
   }
   /** sair no meio de um rali também guarda o tempo dele */
@@ -224,7 +228,7 @@ export class Game {
     });
     if (!any) return false;
     { let cx = 0, cz = 0; for (const m of team) { cx += m.rig.root.position.x; cz += m.rig.root.position.z; } this.vfx.confetti(cx / team.length, cz / team.length, 220, 5, 5.2); }
-    this.danceWho = winner; this.lastDance = first; this.react = 0; this.swing = null; this.vx = this.vz = 0;
+    this.sfx.cheer(60, 2.6); this.danceWho = winner; this.lastDance = first; this.react = 0; this.swing = null; this.vx = this.vz = 0;
     this.camPrev = { ...this.cam }; this.camUser = -99; this.emit("dance", { winner, clip: first, n: team.length });
     return true;
   }
@@ -273,6 +277,7 @@ export class Game {
     const who = winner === 0 ? "Ponto!" : "Ponto da adversária";
     if (tag) this.onToast(tag, `${who} · ${more}`); else this.onToast(who, `${reason} · ${more}`);
     if (winner === 0) { const t = this.dancersOf(0); let cx = 0, cz = 0; for (const m of t) { cx += m.rig.root.position.x; cz += m.rig.root.position.z; } this.vfx.confetti(cx / t.length, cz / t.length, r.game !== undefined ? 70 : 26, 2.2, 3.4); }
+    if (winner === 0) this.sfx.cheer(r.game !== undefined ? 40 : this.rally >= 6 ? 26 : 12, r.game !== undefined ? 1.8 : 1.1); else this.sfx.buzz([25, 50, 25]);
     this.emit("point", { winner, reason, rally: this.rally, games: v.games, points: v.points }); this.onScore(v); this.onHud();
   }
 
@@ -578,7 +583,8 @@ export class Game {
     const act = this.rig.actions.get(clip); if (!act || this.swing) return;
     const p = this.rig.root.position; this.alt++; const st = this.rig.startT(clip, S.contactOffset), dur = this.rig.durations.get(clip) ?? 2;
     const plan = smp ? [smp.x, smp.y, smp.z, smp.t].map((v) => +v.toFixed(2)) : [];
-    this.swing = { clip, s, contactT: ct, t: st, startT: st, endT: Math.min(dur - 0.02, ct + FOLLOW), duration: dur, x0: p.x, z0: p.z, x1, z1, contacted: false, kind, plan, err, whiff, msg, t0: this.time, D: Math.max(0.05, (ct - st) / s), hold: false, rel: this.time };
+    this.swing = { clip, s, contactT: ct, t: st, startT: st, endT: Math.min(dur - 0.02, ct + (whiff ? WHIFF_FOLLOW : PLAYER_FOLLOW)), duration: dur, x0: p.x, z0: p.z, x1, z1, contacted: false, kind, plan, err, whiff, msg, t0: this.time, D: Math.max(0.05, (ct - st) / s), hold: false, rel: this.time };
+    this.swing.blend = Math.min(0.15 + 0.3 * Math.hypot(x1 - p.x, z1 - p.z), Math.max(0.15, 0.55 * this.swing.D!)); this.sfx.swish();   // longe do ponto: as pernas ainda dão passos enquanto o golpe entra
     this.swingAct = act; this.vx = 0; this.vz = 0; this.cue = null;
     this.info = `${strokeOf(clip)?.label ?? clip} · erro ${Math.round(err * 1000)} ms`; this.emit("swing", { clip, s: +s.toFixed(2), err_ms: Math.round(err * 1000), whiff, plan });
   }
@@ -587,7 +593,7 @@ export class Game {
   manualSwing(): boolean { const had = this.swing; this.press(); return !had && !!this.swing; }   // true se este aperto começou um golpe (inclusive em branco)
   private press(): void {
     if (this.swing || this.state !== "rally") return;
-    const cue = this.cue ?? (this.lastCue && this.time - this.lastCue.press < 0.5 ? this.lastCue : null); if (!cue) { this.whiff(1); return; }   // lastCue: apertou um pouco depois da bola passar da janela
+    const cue = this.cue ?? (this.lastCue && this.time - this.lastCue.press < 0.5 ? this.lastCue : null); if (!cue) return;   // nenhuma bola vindo (ela está indo para o outro lado): o aperto não faz nada (antes saía um golpe em branco que prendia a jogadora); lastCue: apertou um pouco depois da bola passar da janela
     const dtp = cue.arrival - this.time, err = dtp - cue.prep;                       // err > 0: apertou cedo; < 0: tarde
     const ct = this.rig.ct(cue.clip, S.contactOffset), st = this.rig.startT(cue.clip, S.contactOffset), s = (ct - st) / Math.max(dtp, 1e-3);
     if (cue.shift > this.pressReach() + 1e-3) { this.whiff(err, "Longe!"); return; }
@@ -632,10 +638,10 @@ export class Game {
     this.lastKind = sw.kind; this.lastKey = strokeOf(sw.clip)?.key ?? "";
     if (sw.kind === "serve") {   // saque: a bola vai para a parede e o rali começa
       if (this.match) this.match.playerShot(H, sw.clip, 1, this.aimOf(sw), true); else this.launch(THREE.MathUtils.clamp(H.x + (Math.random() - 0.5) * 2.4, -2.5, 2.5), S.ballSpeed * 1.05, false);
-      this.vfx.hit(H.x, H.y, H.z, 1, "serve"); this.state = "rally"; this.rally = 0; this.serveTime = this.time; this.lastCue = null; this.onToast("Saque!"); this.coopHit(); this.onHud(); return;
+      this.vfx.hit(H.x, H.y, H.z, 1, "serve"); this.sfx.hit(1, "serve"); this.sfx.buzz(15); this.state = "rally"; this.rally = 0; this.serveTime = this.time; this.lastCue = null; this.onToast("Saque!"); this.coopHit(); this.onHud(); return;
     }
     const q = qualityOf(sw.err);   // 2 perfeito, 1 bom, 0 fraco (cedo/tarde)
-    this.vfx.hit(H.x, H.y, H.z, q, sw.kind);
+    this.vfx.hit(H.x, H.y, H.z, q, sw.kind); this.sfx.hit(q, sw.kind); this.sfx.buzz(q === 2 ? 28 : q === 1 ? 16 : 8);
     if (pw > 0 && S.stamina) this.stamina.drain((sw.kind === "over" || sw.kind === "smash" ? 0.03 : 0.012) * pw);   // a força custa fôlego: até o dobro de um golpe normal
     const aim = this.aimOf(sw);
     const spread = S.aimSpread * (q === 2 ? 0.4 : q === 1 ? 1 : 1.6);
@@ -646,7 +652,7 @@ export class Game {
     if (this.match) this.match.playerShot(H, sw.clip, q, aim, false, pw); else this.launch(tx, speed, smash);
     this.rally++; if (q === 2) this.perfects++; if (!this.fresco && this.rally > this.record) { this.record = this.rally; saveRecord(this.record); this.recBeaten = this.rally >= 6; }   // (o recorde do frescobol é outro: coopHit; este é o do treino)
     this.coopHit();
-    this.onToast(q === 2 ? "Perfeito!" : q === 1 ? "Bom!" : sw.err > 0 ? "Cedo!" : "Tarde!", st ? (pw >= 0.6 ? `${st.label} · forte` : st.label) : undefined); this.onHud(); this.tipForce();
+    { const lb = st ? (pw >= 0.6 ? `${st.label} · forte` : st.label) : ""; this.onToast(q === 2 ? "Perfeito!" : q === 1 ? "Bom!" : "Fraco!", q === 0 ? `${lb ? lb + " · " : ""}${sw.err > 0 ? "cedo" : "tarde"} demais` : lb || undefined); }   // a bola foi rebatida: "Cedo!/Tarde!" sozinhos ficam só para o golpe em branco this.onHud(); this.tipForce();
   }
 
   private advance(dt: number): void {
@@ -665,10 +671,10 @@ export class Game {
 
   private handleEvent(ev: string | null): void {
     if (!ev) return;
-    if (ev === "net") this.net.hit(this.ball.x, this.ball.y, 9);   // o pano balança a partir de onde a bola bateu
-    if (ev === "sand") this.vfx.sand(this.ball.x, this.ball.z, Math.hypot(this.ball.vx, this.ball.vy, this.ball.vz));
+    if (ev === "net") { this.net.hit(this.ball.x, this.ball.y, 9); this.sfx.net(); this.sfx.buzz(12); }   // o pano balança a partir de onde a bola bateu
+    if (ev === "sand") { const sp = Math.hypot(this.ball.vx, this.ball.vy, this.ball.vz); this.vfx.sand(this.ball.x, this.ball.z, sp); this.sfx.sand(sp); }
     if (this.match) { if (this.state === "rally") { if (ev === "sand") this.match.onSand(); else if (ev === "net") this.match.onNet(); } return; }   // partida: o 1º toque na areia ou a rede decide o ponto
-    if (ev === "wall") { this.wallFx.spawn(this.ball.x, this.ball.y, this.tun.wallZ - 0.03); this.emit("wall", { z: +this.ball.z.toFixed(2), y: +this.ball.y.toFixed(2) }); if (this.state === "rally" && this.ball.y < NET_H - 0.03) this.kill("Na rede"); }
+    if (ev === "wall") { this.sfx.wall(); this.wallFx.spawn(this.ball.x, this.ball.y, this.tun.wallZ - 0.03); this.emit("wall", { z: +this.ball.z.toFixed(2), y: +this.ball.y.toFixed(2) }); if (this.state === "rally" && this.ball.y < NET_H - 0.03) this.kill("Na rede"); }
     if (ev === "wallout" && this.state === "rally") this.kill("Fora da parede");
     if (ev === "sand" && this.state === "rally") this.kill(this.ball.vz > 0 ? "Bola curta" : "Quicou na areia");   // bola viva: o 1º toque na areia encerra o ponto
   }
@@ -685,6 +691,9 @@ export class Game {
     dt = Math.min(dt, 0.05); this.time += dt; const root = this.rig.root; const p = root.position;
     if (Math.abs(this.input.right) > 0.25) { this.aimV = -this.input.right; this.aimT = this.time; }   // último empurrão lateral do direcional (mira)
     if (this.cover) { this.cam.yaw = 0.62 * Math.sin(this.time * 0.14); this.cam.pitch = 0.2 + 0.04 * Math.sin(this.time * 0.09); this.cam.dist = this.camera.aspect < 0.8 ? 16 : 12.5; }
+    if (S.camReturn && !this.camHeld && !this.camEdit && !this.cover && !this.viewer && this.danceWho === null && (this.state === "rally" || this.state === "serve") && this.time - this.camUser > CAM_BACK) {   // giro acidental (dedo que errou o GOLPE): no rali a câmera volta sozinha ao giro da câmera escolhida, e o direcional volta a apontar para a rede
+      const d = wrapA(CAMS.get().yaw - this.cam.yaw); if (Math.abs(d) > 1e-3) this.cam.yaw += d * Math.min(1, 5 * dt);
+    }
     if (this.state === "dead") {
       this.deadTimer -= dt; this.reactT += dt;
       if (this.match) {   // partida: as duas voltam aos lugares e o ponto seguinte começa (ou acaba a partida)
@@ -733,10 +742,10 @@ export class Game {
     { const c = this.swing; if (this.cancelFollow && c && c.contacted && c.kind !== "serve" && !c.preview && !this.viewer && Math.hypot(this.input.right, this.input.fwd) > 0.35) c.endT = Math.min(c.endT, c.t + 0.1 * c.s); }   // depois do contato, empurrar o direcional encurta o gesto e devolve a corrida (antes ficava presa ~0,4 s)
     const sw = this.swing;
     if (sw) {
-      const pr = Math.max(0, Math.min(1, (sw.t - sw.startT) / (sw.contactT - sw.startT))); const e = pr * pr * (3 - 2 * pr);
-      p.x = sw.x0 + (sw.x1 - sw.x0) * e; p.z = sw.z0 + (sw.z1 - sw.z0) * e;
+      const pr = Math.max(0, Math.min(1, (sw.t - sw.startT) / (0.7 * (sw.contactT - sw.startT)))); const e = pr * pr * (3 - 2 * pr), ox = p.x, oz = p.z;   // chega ao ponto nos primeiros 70% do preparo, dando passos; o resto do gesto é com os pés plantados
+      p.x = sw.x0 + (sw.x1 - sw.x0) * e; p.z = sw.z0 + (sw.z1 - sw.z0) * e; this.slideVx = (p.x - ox) / dt; this.slideVz = (p.z - oz) / dt;
       if (sw.t >= sw.endT) { this.swing = null; if (this.viewer) this.viewer.wait = 0.7; }
-    } else if (this.viewer) { this.viewer.wait -= dt; if (this.viewer.wait <= 0) this.startView(); }   // galeria: repete o golpe depois de uma pausa
+    } else { this.slideVx = this.slideVz = 0; if (this.viewer) { this.viewer.wait -= dt; if (this.viewer.wait <= 0) this.startView(); } }   // galeria: repete o golpe depois de uma pausa
     this.wallFx.update(dt); this.dust.update(dt); this.animate(dt); this.danceCam(dt);
     if (this.mode === "match") { const live = (this.state === "rally" || this.state === "serve") && this.ballMesh.visible ? this.ball : null; for (const o of this.aiBodies()) o.animate(dt, this.time, live); }
     this.rig.root.updateMatrixWorld(true);
@@ -754,9 +763,9 @@ export class Game {
 
   private animate(dt: number): void {
     const R = this.rig; const target = this.swing ? 1 : 0;
-    this.swingW += Math.sign(target - this.swingW) * Math.min(Math.abs(target - this.swingW), dt / (target ? (this.swing?.kind === "serve" ? 0.35 : 0.15) : 0.3));
+    this.swingW += Math.sign(target - this.swingW) * Math.min(Math.abs(target - this.swingW), dt / (target ? (this.swing?.kind === "serve" ? 0.35 : this.swing?.blend ?? 0.15) : 0.3));
     const dw = this.dancer.update(dt), Lw = (1 - this.swingW) * (1 - dw);   // a dança toma o lugar da locomoção (e da camada de vida)
-    if (R.loco.ready) R.loco.step(R, dt, this.vx, this.vz, Lw);
+    if (R.loco.ready) R.loco.step(R, dt, this.swing ? this.slideVx : this.vx, this.swing ? this.slideVz : this.vz, Lw);
     else {   // sem loco2.glb: locomoção do GLB principal
       const speed = Math.hypot(this.vx, this.vz); const m = Math.min(1, speed / MAX_SPEED);
       const f = this.vz, l = this.vx; const sum = Math.abs(f) + Math.abs(l) + 1e-6;

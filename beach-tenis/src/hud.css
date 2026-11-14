@@ -64,7 +64,7 @@ body.match #staWrap small{display:none}
 #hitFx{position:fixed;right:max(64px,calc(env(safe-area-inset-right) + 58px));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 150px);text-align:right;font:800 25px/1 var(--f-display);letter-spacing:.01em;opacity:0;transform:translateY(6px);transition:opacity .12s,transform .12s;pointer-events:none;text-shadow:0 2px 0 #0008,0 0 8px #000b,0 0 16px #0007;max-width:60vw;white-space:nowrap}
 #hitFx.on{opacity:1;transform:none}
 #hitFx small{display:block;font:800 12px/1.2 var(--f-ui);margin-top:3px;color:#fff;opacity:.95;text-shadow:0 1px 2px #000c,0 0 6px #000a}
-#hitFx.k-perfect{color:var(--lime)}#hitFx.k-good{color:var(--sand)}#hitFx.k-miss{color:#ff9a5a}#hitFx.k-serve{color:#fff}
+#hitFx.k-perfect{color:var(--lime)}#hitFx.k-good{color:var(--sand)}#hitFx.k-miss{color:#ff9a5a}#hitFx.k-weak{color:#ffd23a}#hitFx.k-serve{color:#fff}
 
 /* nome do golpe pedido, acima dos botões */
 #cueName{position:fixed;right:max(64px,calc(env(safe-area-inset-right) + 58px));bottom:calc(max(16px,env(safe-area-inset-bottom)) + 120px);padding:5px 14px;border-radius:999px;background:var(--glass2);border:1px solid var(--line);color:#fff;font:800 14px/1.15 var(--f-ui);opacity:0;transition:opacity .15s;pointer-events:none;max-width:70vw;text-align:center}

@@ -311,7 +311,7 @@ export class Match {
     g.emit("opp", { clip: sw.clip, gap_cm: Math.round(gap * 100), whiff: sw.whiff, serve: sw.serve, by: a.o.name });
     if (!sw.serve && (sw.whiff || gap > 0.55)) { a.plan = null; if (sw.whiff) this.stats.whiff++; else this.stats.miss++; return; }
     if (!sw.serve) this.stats.hit++;   // errou a bola: ela segue e o ponto se decide na areia
-    b.x = H.x; b.y = Math.max(H.y, BALL_R); b.z = H.z; g.lastKind = sw.serve ? "serve" : sw.kind; g.lastKey = sw.serve ? "saque" : strokeOf(sw.clip)?.key ?? ""; g.vfx.hit(H.x, H.y, H.z, 1, g.lastKind);
+    b.x = H.x; b.y = Math.max(H.y, BALL_R); b.z = H.z; g.lastKind = sw.serve ? "serve" : sw.kind; g.lastKey = sw.serve ? "saque" : strokeOf(sw.clip)?.key ?? ""; g.vfx.hit(H.x, H.y, H.z, 1, g.lastKind); g.sfx.hit(1, g.lastKind, a.team === 1 ? 0.55 : 0.8);
     if (S.stamina && !this.fresco) o.stamina.drain(sw.serve ? 0.02 : sw.kind === "over" ? 0.03 : 0.012);
     this.aiShot(a, sw.serve, p?.err ?? false); a.plan = null;
     if (sw.serve) { g.state = "rally"; g.rally = 0; g.serveTime = g.time; }

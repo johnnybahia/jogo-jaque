@@ -37,8 +37,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   const toast = $("toast"); let tt = 0;
   const hitFx = $("hitFx"); let th = 0;
   game.onToast = (m, sub, ms) => {
-    if (/^(Perfeito|Bom!|Cedo|Tarde|Longe|Saque!)/.test(m)) {   // resultado da batida e nome do golpe: texto pequeno ao lado dos botões, não no meio da tela
-      const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^Saque/.test(m) ? "serve" : "miss";
+    if (/^(Perfeito|Bom!|Fraco|Cedo|Tarde|Longe|Saque!)/.test(m)) {   // resultado da batida e nome do golpe: texto pequeno ao lado dos botões, não no meio da tela
+      const k = /^Perfeito/.test(m) ? "perfect" : /^Bom/.test(m) ? "good" : /^Saque/.test(m) ? "serve" : /^Fraco/.test(m) ? "weak" : "miss";
       hitFx.textContent = m; if (sub) { const el = document.createElement("small"); el.textContent = sub; hitFx.appendChild(el); }
       hitFx.className = `k-${k} on`; clearTimeout(th); th = window.setTimeout(() => hitFx.classList.remove("on"), sub ? 1100 : 800); return;
     }
@@ -119,14 +119,15 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
   // câmera: arrastar (um dedo ou mouse) gira 360° em volta da jogadora; pinça, roda do mouse ou ＋/－ = zoom; ⟲ recentraliza
   const camZone = $("camZone"), ptrs = new Map<number, { x: number; y: number }>(); let pinch = 0;
   const pdist = () => { const [a, b] = [...ptrs.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
-  camZone.addEventListener("pointerdown", (e) => { camZone.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); pinch = ptrs.size === 2 ? pdist() : 0; });
+  camZone.addEventListener("pointerdown", (e) => { camZone.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); game.camHeld = true; pinch = ptrs.size === 2 ? pdist() : 0; });
   camZone.addEventListener("pointermove", (e) => {
     const q = ptrs.get(e.pointerId); if (!q) return; const dx = e.clientX - q.x, dy = e.clientY - q.y; q.x = e.clientX; q.y = e.clientY;
     if (ptrs.size === 1) game.orbit(-dx * 0.0075 * S.camSens, dy * 0.005 * S.camSens);
     else if (ptrs.size === 2) { const d = pdist(); if (pinch > 0 && d > 0) game.zoom(pinch / d); pinch = d; }
   });
-  const camEnd = (e: PointerEvent) => { if (ptrs.delete(e.pointerId)) { pinch = 0; saveSettings(); } };
-  camZone.addEventListener("pointerup", camEnd); camZone.addEventListener("pointercancel", camEnd);
+  const camEnd = (e: PointerEvent) => { if (ptrs.delete(e.pointerId)) { pinch = 0; saveSettings(); } game.camHeld = ptrs.size > 0; };
+  camZone.addEventListener("pointerup", camEnd); camZone.addEventListener("pointercancel", camEnd); camZone.addEventListener("lostpointercapture", camEnd);   // perder a captura também solta (um dedo "fantasma" virava pinça e travava o giro)
+  addEventListener("blur", () => { ptrs.clear(); pinch = 0; game.camHeld = false; });
   camZone.addEventListener("wheel", (e) => { e.preventDefault(); game.zoom(Math.exp(e.deltaY * 0.0012)); }, { passive: false });
   $("zoomIn").addEventListener("click", () => { game.zoom(0.85); saveSettings(); });
   $("zoomOut").addEventListener("click", () => { game.zoom(1.18); saveSettings(); });
@@ -180,7 +181,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
       chips.appendChild(b);
     }
     panel.appendChild(chips);
-    const chk = (key: "auto" | "autoServe" | "stamina" | "footprints" | "force", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); game.onHud(); }; panel.appendChild(l); };
+    const chk = (key: "auto" | "autoServe" | "stamina" | "footprints" | "force" | "sound" | "haptics" | "camReturn", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); game.sfx.apply(); game.onHud(); }; panel.appendChild(l); };
+    chk("sound", "Som (batida, areia, rede, mar e palmas)"); chk("haptics", "Vibração na batida (Android)"); chk("camReturn", "Câmera volta sozinha no rali (depois de 1,5 s sem tocar nela)");
     chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("stamina", "Fôlego (quem corre mais cansa e fica mais lenta)"); chk("footprints", "Marcas dos pés na areia"); chk("force", "Partida: marcador de queda e força (segure o GOLPE até a bola bater)");
     for (const [title, specs] of SPECS) {
       const h = document.createElement("h3"); h.textContent = title; panel.appendChild(h);
