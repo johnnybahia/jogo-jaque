@@ -71,7 +71,7 @@ export class Game {
   rally = 0; record = loadRecord(); deadTimer = 0; time = 0; serveTime = 0;
   react = 0; reactT = 0; private walkAt = 0.5; private recBeaten = false;   // reação ao fim do ponto (0 nada, 1 suspiro, 2 comemoração), tempo desde o ponto e quando ela começa a voltar ao saque
   swing: Swing | null = null; swingAct: THREE.AnimationAction | null = null; swingW = 0;
-  cue: Cue | null = null; cueOut = false; private lastCue: Cue | null = null; marker: CueMarker; aimMark: AimMark; private hitT = 0; private aimV = 0; private aimT = -99; aimPre = 0.12; cancelFollow = true; runLead = 0.12; perfects = 0;   // aimPre: janela (s) antes do aperto em que um empurrão do direcional ainda vale como mira; cancelFollow: empurrar o direcional depois do contato encurta o gesto (os dois ligam por padrão; os testes de comparação com a versão antiga os desligam)
+  cue: Cue | null = null; cueOut = false; private lastCue: Cue | null = null; marker: CueMarker; aimMark: AimMark; private hitT = 0; private aimV = 0; private aimT = -99; private aimDV = 0; private aimDT = -99; aimPre = 0.12; cancelFollow = true; runLead = 0.12; perfects = 0;   // aimPre: janela (s) antes do aperto em que um empurrão do direcional ainda vale como mira; cancelFollow: empurrar o direcional depois do contato encurta o gesto (os dois ligam por padrão; os testes de comparação com a versão antiga os desligam)
   wallFx: WallFx; dust: Dust;
   dancer = new Dancer(); danceWho: Side | null = null; private danced = false; private danceT0 = 0; private lastDance: string | null = null; private camPrev: { yaw: number; pitch: number; dist: number } | null = null; private camUser = -99; private oppPos = new THREE.Vector3();   // dança de vitória: quem dança, se já começou, a última sorteada, câmera de antes e último toque do usuário na câmera
   match: Match | null = null; onScore: (v: ScoreView | null) => void = () => {}; onMatchEnd: (winner: Side, v: ScoreView) => void = () => {}; private matchEnded = false;
@@ -103,7 +103,7 @@ export class Game {
   onView: (v: ViewState | null) => void = () => {};
   viewer: Viewer | null = null;
   info = ""; private tmpV = new THREE.Vector3(); private footSp: number[] = [];
-  vfx!: Fx; lastKind = ""; lastKey = ""; private swingers = new Map<object, Swinger>(); shadowsOn = false; private post: Post | null = null; private postWanted = false; private postLoad: Promise<void> | null = null; private tipDone = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
+  vfx!: Fx; lastKind = ""; lastKey = ""; private swingers = new Map<object, Swinger>(); shadowsOn = false; private post: Post | null = null; private postWanted = false; private postLoad: Promise<void> | null = null; private tipDone = false; private tipPlaced = false; cover = false; private pendingCover = false; private coverFocus = new THREE.Vector3(0, 0, MATCH.netZ);   // capa aberta: cena da quadra ao pôr do sol atrás do menu
   readonly quality = new Quality(); atm!: Atmosphere; net!: Net; props!: Props; private courtMask!: { value: number }; private shelfMask!: { value: number };   // hora do dia: céu, mar, luz e névoa; rede com pano; adereços da praia
 
   constructor(canvas: HTMLCanvasElement) {
@@ -631,6 +631,12 @@ export class Game {
     this.tipDone = true; try { if (localStorage.getItem("bt.tip.force")) return; localStorage.setItem("bt.tip.force", "1"); } catch { return; }
     window.setTimeout(() => this.onToast("Dica: segure o GOLPE até a bola bater", "mais força, mas a bola fica mais arriscada", 4500), 1500);
   }
+  /** uma vez só: ensina a colocação pelo direcional */
+  private tipPlace(): void {
+    if (!this.match || this.fresco || this.tipPlaced || this.rally < 6) return;
+    this.tipPlaced = true; try { if (localStorage.getItem("bt.tip.place")) return; localStorage.setItem("bt.tip.place", "1"); } catch { return; }
+    window.setTimeout(() => this.onToast("Dica: o direcional coloca a bola", "na batida: lado = mira · frente = funda/lob · trás = curtinha", 5000), 600);
+  }
 
   /** fração do balanço (0 a 1) em que o GOLPE ficou apertado, até `now` */
   holdFrac(sw: Swing, now = this.time): number { const t0 = sw.t0 ?? now; return THREE.MathUtils.clamp(((sw.hold ? now : sw.rel ?? t0) - t0) / (sw.D ?? 1), 0, 1); }
@@ -668,10 +674,10 @@ export class Game {
     const smash = sw.kind === "smash" || sw.kind === "over";
     const speed = S.ballSpeed * (smash ? 1.25 : sw.kind === "volley" ? 0.9 : 1) * (q === 2 ? 1.12 : q === 1 ? 1 : 0.86);
     const st = strokeOf(sw.clip); if (st) { this.recent.push(st.key); if (this.recent.length > 4) this.recent.shift(); }   // antes de lançar: a próxima bola não repete este golpe
-    if (this.match) this.match.playerShot(H, sw.clip, q, aim, false, pw); else this.launch(tx, speed, smash);
+    let how = ""; if (this.match) how = this.match.playerShot(H, sw.clip, q, aim, false, pw, { err: sw.err, ay: this.depthOf(sw), stretch: Math.min(1, Math.hypot(sw.x1 - sw.x0, sw.z1 - sw.z0) / 0.55) }); else this.launch(tx, speed, smash);
     this.rally++; if (q === 2) this.perfects++; if (!this.fresco && this.rally > this.record) { this.record = this.rally; saveRecord(this.record); this.recBeaten = this.rally >= 6; }   // (o recorde do frescobol é outro: coopHit; este é o do treino)
     this.coopHit();
-    { const lb = st ? (pw >= 0.6 ? `${st.label} · forte` : st.label) : ""; this.onToast(q === 2 ? "Perfeito!" : q === 1 ? "Bom!" : "Fraco!", q === 0 ? `${lb ? lb + " · " : ""}${sw.err > 0 ? "cedo" : "tarde"} demais` : lb || undefined); }   // a bola foi rebatida: "Cedo!/Tarde!" sozinhos ficam só para o golpe em branco this.onHud(); this.tipForce();
+    { const lb = how === "drop" ? "Curtinha" : how === "lob" ? "Lob" : st ? (pw >= 0.6 ? `${st.label} · forte` : st.label) : ""; this.onToast(q === 2 ? "Perfeito!" : q === 1 ? "Bom!" : "Fraco!", q === 0 ? `${lb ? lb + " · " : ""}${sw.err > 0 ? "cedo" : "tarde"} demais` : lb || undefined); }   // a bola foi rebatida: "Cedo!/Tarde!" sozinhos ficam só para o golpe em branco this.onHud(); this.tipForce(); this.tipPlace();
   }
 
   private advance(dt: number): void {
@@ -690,7 +696,8 @@ export class Game {
 
   private handleEvent(ev: string | null): void {
     if (!ev) return;
-    if (ev === "net") { this.net.hit(this.ball.x, this.ball.y, 9); this.sfx.net(); this.sfx.buzz(12); }   // o pano balança a partir de onde a bola bateu
+    if (ev === "net") { this.net.hit(this.ball.x, this.ball.y, 9); this.sfx.net(); this.sfx.buzz(12); }
+    if (ev === "tape") { this.net.hit(this.ball.x, this.ball.y, 5); this.sfx.net(); if (this.state === "rally") this.onToast("Na fita!"); }   // o pano balança a partir de onde a bola bateu
     if (ev === "sand") { const sp = Math.hypot(this.ball.vx, this.ball.vy, this.ball.vz); this.vfx.sand(this.ball.x, this.ball.z, sp); this.sfx.sand(sp); }
     if (this.match) { if (this.state === "rally") { if (ev === "sand") this.match.onSand(); else if (ev === "net") this.match.onNet(); } return; }   // partida: o 1º toque na areia ou a rede decide o ponto
     if (ev === "wall") { this.sfx.wall(); this.wallFx.spawn(this.ball.x, this.ball.y, this.tun.wallZ - 0.03); this.emit("wall", { z: +this.ball.z.toFixed(2), y: +this.ball.y.toFixed(2) }); if (this.state === "rally" && this.ball.y < NET_H - 0.03) this.kill("Na rede"); }
@@ -708,7 +715,8 @@ export class Game {
   tick(dt: number): void {
     if (!this.rig.mixer) return;
     dt = Math.min(dt, 0.05); this.time += dt; const root = this.rig.root; const p = root.position;
-    if (Math.abs(this.input.right) > 0.25) { this.aimV = -this.input.right; this.aimT = this.time; }   // último empurrão lateral do direcional (mira)
+    if (Math.abs(this.input.right) > 0.25) { this.aimV = -this.input.right; this.aimT = this.time; }
+    if (Math.abs(this.input.fwd) > 0.35) { this.aimDV = this.input.fwd; this.aimDT = this.time; }   // último empurrão para a frente/trás (profundidade do golpe)   // último empurrão lateral do direcional (mira)
     if (this.cover) { this.cam.yaw = 0.62 * Math.sin(this.time * 0.14); this.cam.pitch = 0.2 + 0.04 * Math.sin(this.time * 0.09); this.cam.dist = this.camera.aspect < 0.8 ? 16 : 12.5; }
     if (S.camReturn && !this.camHeld && !this.camEdit && !this.cover && !this.viewer && this.danceWho === null && (this.state === "rally" || this.state === "serve") && this.time - this.camUser > CAM_BACK) {   // giro acidental (dedo que errou o GOLPE): no rali a câmera volta sozinha ao giro da câmera escolhida, e o direcional volta a apontar para a rede
       const d = wrapA(CAMS.get().yaw - this.cam.yaw); if (Math.abs(d) > 1e-3) this.cam.yaw += d * Math.min(1, 5 * dt);
@@ -842,12 +850,15 @@ export class Game {
   /** mira lateral do golpe (−1 a 1): o direcional de agora; se está solto, o último empurrão desde 0,12 s antes do aperto — empurrar o direcional e apertar o GOLPE juntos, soltando logo em seguida, não perde a mira (quem corre, para e só aperta depois não mira sem querer) */
   private aimOf(sw: Swing): number { const r = this.input.right; return Math.abs(r) <= 0.25 && sw.t0 !== undefined && this.aimT >= sw.t0 - this.aimPre ? this.aimV : -r; }
 
+  /** profundidade do golpe (−1 curta a 1 funda): o direcional para a frente/trás de agora, ou o último empurrão (como a mira lateral) */
+  private depthOf(sw: Swing): number { const f = this.input.fwd; return Math.abs(f) <= 0.35 && sw.t0 !== undefined && this.aimDT >= sw.t0 - this.aimPre ? this.aimDV : f; }
+
   /** partida, durante o balanço: marcador de queda na quadra adversária (mira do direcional + tempo + força) e barra de força na tela */
   private aimTick(dt: number): void {
     const sw = this.swing, on = !!this.match && S.force && !!sw && !sw.contacted && !sw.whiff && !sw.preview && sw.D !== undefined && this.state === "rally";
     if (!on) { this.aimMark.update(null, dt); this.onPower(null); return; }
     const f = this.holdFrac(sw!), pw = powerOf(f);
-    this.aimMark.update(this.match!.preview(sw!.clip, qualityOf(sw!.err), this.aimOf(sw!), pw), dt); this.onPower({ f, pw, hold: !!sw!.hold });
+    this.aimMark.update(this.match!.preview(sw!.clip, qualityOf(sw!.err), sw!.err, this.aimOf(sw!), this.depthOf(sw!), pw, sw!.x1, sw!.z1), dt); this.onPower({ f, pw, hold: !!sw!.hold });
   }
 
   private setCamera(snap: boolean, dt = 0.016): void {

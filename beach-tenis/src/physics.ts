@@ -8,7 +8,7 @@ export interface Net { z: number; h: number; w: number; }   // plano da rede (z)
 export interface Wind { x: number; z: number; }
 export const CALM: Wind = { x: 0, z: 0 };
 export interface Tun { eSand: number; eWall: number; wallZ: number; wallW: number; wallH: number; net?: Net; wind?: Wind; }
-export type Ev = "sand" | "wall" | "wallout" | "net" | null;
+export type Ev = "sand" | "wall" | "wallout" | "net" | "tape" | null;   // tape: raspou na fita e passou
 export const DRAG = 0.025; // 0.5*rho*Cd*A/m para bola ~6,5 cm / 45 g
 const FRIC_SAND = 0.8;
 
@@ -38,8 +38,9 @@ export function stepBall(b: Ball, dt: number, t: Tun): Ev {
   const n = t.net;
   if (n && ev === null) {
     const zPrev = b.z - b.vz * dt;
-    if ((zPrev - n.z) * (b.z - n.z) < 0 && Math.abs(b.x) <= n.w / 2 && b.y < n.h + BALL_R * 0.5) {
-      b.z = n.z + (zPrev < n.z ? -1 : 1) * (BALL_R + 0.01); b.vz = -b.vz * 0.15; b.vx *= 0.35; b.vy = Math.min(b.vy, 0.5); ev = "net";
+    if ((zPrev - n.z) * (b.z - n.z) < 0 && Math.abs(b.x) <= n.w / 2 && b.y < n.h + BALL_R) {
+      if (b.y >= n.h - BALL_R) { b.vz *= 0.4; b.vx *= 0.6; b.vy = Math.abs(b.vy) * 0.3 + 0.6; ev = "tape"; }   // pegou na fita: perde força, sobe um pouco e cai logo depois da rede
+      else { b.z = n.z + (zPrev < n.z ? -1 : 1) * (BALL_R + 0.01); b.vz = -b.vz * 0.15; b.vx *= 0.35; b.vy = Math.min(b.vy, 0.5); ev = "net"; }
     }
   }
   return ev;
