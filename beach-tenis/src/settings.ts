@@ -1,10 +1,10 @@
 export interface Settings {
-  auto: boolean; autoServe: boolean; sound: boolean; haptics: boolean; camReturn: boolean; arena: boolean; stamina: boolean; footprints: boolean; force: boolean; footLife: number; tod: number; wind: number; weather: number; assist: number; hitRadius: number; ballSpeed: number; aimSpread: number; timing: number;
+  auto: boolean; autoServe: boolean; sound: boolean; haptics: boolean; camReturn: boolean; stamina: boolean; footprints: boolean; force: boolean; footLife: number; tod: number; wind: number; weather: number; place: number; assist: number; hitRadius: number; ballSpeed: number; aimSpread: number; timing: number;
   contactOffset: number; ballVisual: number; eSand: number; eWall: number; playerScale: number; timeScale: number;
   faceAssist: number; camSens: number; camDist: number; rkX: number; rkY: number; rkZ: number; rkRX: number; rkRY: number; rkRZ: number;
 }
 export const DEFAULTS: Settings = {
-  auto: false, autoServe: true, sound: true, haptics: true, camReturn: true, arena: true, stamina: true, footprints: true, force: true, footLife: 25, tod: 0, wind: 1, weather: 0, assist: 0.55, hitRadius: 0.32, ballSpeed: 12.5, aimSpread: 1.2, timing: 1,
+  auto: false, autoServe: true, sound: true, haptics: true, camReturn: true, stamina: true, footprints: true, force: true, footLife: 25, tod: 0, wind: 1, weather: 0, place: 0, assist: 0.55, hitRadius: 0.32, ballSpeed: 12.5, aimSpread: 1.2, timing: 1,
   contactOffset: 0, ballVisual: 3.5, eSand: 0.88, eWall: 0.62, playerScale: 1.75, timeScale: 1,
   faceAssist: 1, camSens: 1, camDist: 5, rkX: 0, rkY: 0, rkZ: 0, rkRX: 0, rkRY: 0, rkRZ: 0,
 };
@@ -20,6 +20,9 @@ export function loadSettings(): void {
     const old = o2 ?? o1;
     if (old) { const v = JSON.parse(old); for (const k of NEW_MEANING) delete v[k]; if (!o2) for (const k of ["rkX", "rkY", "rkZ", "rkRX", "rkRY", "rkRZ"]) delete v[k]; Object.assign(S, v); }
   } catch { /* sem storage */ }
+  finally {   // uma vez: período, clima, vento e local voltam a "sorteia a cada partida" (quem fixou algum nos testes recomeça no aleatório; depois pode fixar de novo em ⚙)
+    try { if (!localStorage.getItem("bt.cond.v1")) { localStorage.setItem("bt.cond.v1", "1"); S.tod = 0; S.weather = 0; S.wind = 1; S.place = 0; saveSettings(); } } catch { /* sem storage */ }
+  }
 }
 export function saveSettings(): void { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch { /* ignora */ } }
 export function loadRecord(): number { try { return Number(localStorage.getItem("bt.record") || 0) || 0; } catch { return 0; } }

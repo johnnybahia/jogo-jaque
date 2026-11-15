@@ -24,6 +24,9 @@ export class Arena {
   readonly group = new THREE.Group();
   private u = { uTime: { value: 0 }, uCheer: { value: 0 } };
   private bodies: THREE.InstancedMesh; private heads: THREE.InstancedMesh; private total = 0; private lamp: THREE.MeshStandardMaterial; private cheerV = 0;
+  /** arquibancadas (com torcida, placas e cadeira do juiz) e postes de refletores são grupos separados: na praia aberta não há arquibancada, e os postes só aparecem à noite */
+  private stands = new THREE.Group(); private lights = new THREE.Group(); private hasStands = true;
+  setStands(on: boolean): void { this.hasStands = on; this.stands.visible = on; }
   private flood = new THREE.Group(); private beamU = { uA: { value: 0 } }; private poolMat!: THREE.MeshBasicMaterial; private glowMat!: THREE.SpriteMaterial;   // refletores acesos (só à noite): clarão nas lâmpadas, fachos e a mancha de luz na quadra
 
   constructor() {
@@ -44,16 +47,16 @@ export class Arena {
     for (const [x, z] of [[-0.28, -0.28], [0.28, -0.28], [-0.28, 0.28], [0.28, 0.28]]) bar(0.06, 1.6, 0.06, x, 0.8, z);
     bar(0.66, 0.07, 0.66, 0, 1.62, 0); bar(0.07, 0.6, 0.66, 0.3, 1.95, 0); for (const y of [0.45, 0.9, 1.3]) bar(0.06, 0.05, 0.6, -0.28, y, 0);
     seats.push(new THREE.Vector3(J.x, 1.66, J.z));
-    const structure = new THREE.Mesh(mergeGeometries(frame), new THREE.MeshStandardMaterial({ color: 0x8d97a6, roughness: 0.9 })); this.group.add(structure);
-    this.group.add(new THREE.Mesh(mergeGeometries(boards), new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.75, side: THREE.DoubleSide })));
+    const structure = new THREE.Mesh(mergeGeometries(frame), new THREE.MeshStandardMaterial({ color: 0x8d97a6, roughness: 0.9 })); this.stands.add(structure);
+    this.stands.add(new THREE.Mesh(mergeGeometries(boards), new THREE.MeshStandardMaterial({ map: boardTexture(), roughness: 0.75, side: THREE.DoubleSide })));
     // postes de refletores nos 4 cantos
     const poles: THREE.BufferGeometry[] = [], lamps: THREE.BufferGeometry[] = [];
     for (const [x, z] of [[-6.9, 0.3], [6.9, 0.3], [-6.9, 15.7], [6.9, 15.7]]) {
       poles.push(new THREE.CylinderGeometry(0.07, 0.11, 9, 8).translate(x, 4.5, z));
       lamps.push(new THREE.BoxGeometry(1.3, 0.5, 0.16).rotateX(z < 8 ? 0.5 : -0.5).rotateY(Math.atan2(-x, 8 - z)).translate(x, 9.1, z));
     }
-    this.group.add(new THREE.Mesh(mergeGeometries(poles), new THREE.MeshStandardMaterial({ color: 0x4a515c, roughness: 0.7, metalness: 0.3 })));
-    this.lamp = new THREE.MeshStandardMaterial({ color: 0xdfe6f2, emissive: 0xeaf1ff, emissiveIntensity: 0.1, roughness: 0.5 }); this.group.add(new THREE.Mesh(mergeGeometries(lamps), this.lamp));
+    this.lights.add(new THREE.Mesh(mergeGeometries(poles), new THREE.MeshStandardMaterial({ color: 0x4a515c, roughness: 0.7, metalness: 0.3 })));
+    this.lamp = new THREE.MeshStandardMaterial({ color: 0xdfe6f2, emissive: 0xeaf1ff, emissiveIntensity: 0.1, roughness: 0.5 }); this.lights.add(new THREE.Mesh(mergeGeometries(lamps), this.lamp)); this.group.add(this.stands, this.lights);
     // refletores acesos: tudo aditivo e sem luz de verdade (uma luz a mais custaria em cada pixel da tela no celular; quem ilumina as atletas é a luz geral da noite, que vem do alto)
     const radial = (stops: [number, string][]): THREE.Texture => { const c = document.createElement("canvas"); c.width = c.height = 128; const x = c.getContext("2d")!, gr = x.createRadialGradient(64, 64, 2, 64, 64, 63); for (const [o, col] of stops) gr.addColorStop(o, col); x.fillStyle = gr; x.fillRect(0, 0, 128, 128); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; };
     this.poolMat = new THREE.MeshBasicMaterial({ map: radial([[0, "rgba(255,255,255,1)"], [0.45, "rgba(255,255,255,0.75)"], [0.8, "rgba(255,255,255,0.22)"], [1, "rgba(255,255,255,0)"]]), color: 0xa9c2ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
@@ -92,7 +95,7 @@ export class Arena {
       const s = 0.9 + Math.random() * 0.25; m.compose(p, q.identity(), new THREE.Vector3(s, s, s)); this.bodies.setMatrixAt(i, m); this.heads.setMatrixAt(i, m);
       this.bodies.setColorAt(i, col.setHex(shirts[(Math.random() * shirts.length) | 0])); this.heads.setColorAt(i, col.setHex(skins[(Math.random() * skins.length) | 0]));
     });
-    for (const im of [this.bodies, this.heads]) { im.frustumCulled = false; this.group.add(im); }
+    for (const im of [this.bodies, this.heads]) { im.frustumCulled = false; this.stands.add(im); }
   }
 
   /** torcida por nível: Alta todos, Média 70%, Baixa 40% */
@@ -105,7 +108,7 @@ export class Arena {
   update(dt: number, night: number): void {
     if (!this.group.visible) return;
     this.u.uTime.value += dt; this.cheerV *= Math.exp(-dt / 0.9); this.u.uCheer.value = this.cheerV;
-    this.lamp.emissiveIntensity = 0.1 + 3.2 * night;
+    this.lights.visible = this.hasStands || night > 0.02; this.lamp.emissiveIntensity = 0.1 + 3.2 * night;
     this.flood.visible = night > 0.02; this.poolMat.opacity = 0.75 * night; this.beamU.uA.value = 0.45 * night; this.glowMat.opacity = 0.9 * night;
   }
 }
