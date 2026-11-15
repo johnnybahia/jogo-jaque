@@ -170,8 +170,10 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
     const QD: Record<string, string> = { alta: "sombras nítidas, bloom e cor de cinema", media: "sombras do sol e vinheta", baixa: "sem sombras do sol, sem nuvens" };
     const qshow = () => { qn.textContent = `Agora: ${game.quality.label()} — ${QD[game.quality.tier]}`; };
     qs.onchange = () => { game.quality.set(qs.value as Choice); qshow(); }; qshow(); panel.appendChild(ql);
-    const tl = document.createElement("label"); tl.innerHTML = `<span>Hora do dia<select><option value="0">Avança com a partida</option><option value="1">Manhã</option><option value="2">Tarde</option><option value="3">Pôr do sol</option><option value="4">Noite</option></select></span>`;
+    const tl = document.createElement("label"); tl.innerHTML = `<span>Hora do dia<select><option value="0">Sorteia a cada partida</option><option value="1">Manhã</option><option value="2">Tarde</option><option value="3">Pôr do sol</option><option value="4">Noite</option></select></span>`;
     const ts = tl.querySelector("select")!; ts.value = String(S.tod); ts.onchange = () => { S.tod = Number(ts.value); saveSettings(); }; panel.appendChild(tl);
+    const pl = document.createElement("label"); pl.innerHTML = `<span>Local da partida<select><option value="0">Sorteia a cada partida</option><option value="1">Arena (arquibancadas e torcida)</option><option value="2">Praia aberta</option></select></span><small>à noite os refletores acendem nos dois</small>`;
+    const ps = pl.querySelector("select")!; ps.value = String(S.place); ps.onchange = () => { S.place = Number(ps.value); saveSettings(); }; panel.appendChild(pl);
     const kl = document.createElement("label"); kl.innerHTML = `<span>Clima na partida<select><option value="0">Sorteia a cada partida</option><option value="1">Céu limpo</option><option value="2">Nublado</option><option value="3">Chuva</option></select></span><small>vale a partir da próxima partida na quadra; na chuva todas correm 10% menos</small>`;
     const ks = kl.querySelector("select")!; ks.value = String(S.weather); ks.onchange = () => { S.weather = Number(ks.value); saveSettings(); }; panel.appendChild(kl);
     const wl = document.createElement("label"); wl.innerHTML = `<span>Vento na partida<select><option value="0">Sem vento</option><option value="1">Sorteia a cada partida</option><option value="2">Brisa (~2 m/s)</option><option value="3">Forte (~4,5 m/s)</option></select></span><small>vale a partir da próxima partida na quadra; treino e frescobol não têm vento</small>`;
@@ -187,9 +189,8 @@ export function initUI(game: Game, version: string): { showUpdate: (fn: () => vo
       chips.appendChild(b);
     }
     panel.appendChild(chips);
-    const chk = (key: "auto" | "autoServe" | "stamina" | "footprints" | "force" | "sound" | "haptics" | "camReturn" | "arena", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); game.sfx.apply(); game.applySettings(false); game.onHud(); }; panel.appendChild(l); };
+    const chk = (key: "auto" | "autoServe" | "stamina" | "footprints" | "force" | "sound" | "haptics" | "camReturn", label: string) => { const l = document.createElement("label"); l.innerHTML = `<span>${label}<input type="checkbox"></span>`; const i = l.querySelector("input")!; i.checked = S[key]; i.onchange = () => { S[key] = i.checked; saveSettings(); game.sfx.apply(); game.applySettings(false); game.onHud(); }; panel.appendChild(l); };
     chk("sound", "Som (batida, areia, rede, mar e palmas)"); chk("haptics", "Vibração na batida (Android)"); chk("camReturn", "Câmera volta sozinha no rali (depois de 1,5 s sem tocar nela)");
-    chk("arena", "Arena na partida: arquibancadas, torcida e refletores");
     chk("auto", "Golpe automático (modo fácil: o jogo aperta na hora)"); chk("autoServe", "Saque automático"); chk("stamina", "Fôlego (quem corre mais cansa e fica mais lenta)"); chk("footprints", "Marcas dos pés na areia"); chk("force", "Partida: marcador de queda e força (segure o GOLPE até a bola bater)");
     for (const [title, specs] of SPECS) {
       const h = document.createElement("h3"); h.textContent = title; panel.appendChild(h);

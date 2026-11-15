@@ -39,7 +39,22 @@ export function initMenu(game: Game, openGallery: () => void): void {
       camBox.appendChild(b);
     }
   };
-  const open = (): void => { game.coverOn(true); cover.hidden = false; document.body.classList.add("menu"); document.body.classList.remove("ended"); card.hidden = true; renderRank(); renderCams(); };
+  // condições da partida (local, período, clima e vento sorteados): cartão antes do primeiro ponto, com a quadra girando atrás
+  const brief = $("brief"), PER = [["🌅", "Manhã"], ["☀️", "Tarde"], ["🌇", "Pôr do sol"], ["🌙", "Noite"]], SKY = [["🌤️", "Céu limpo"], ["☁️", "Nublado"], ["🌧️", "Chuva"]];
+  game.onBrief = (b) => {
+    const wind = b.wind <= 0 ? "Sem vento" : `${b.wind >= 3.5 ? "Vento forte" : "Brisa"} · ${b.wind.toFixed(1).replace(".", ",")} m/s`;
+    const row = (ic: string, k: string, v: string, sub = ""): string => `<div class="br-row"><span class="br-ic">${ic}</span><span class="br-k">${k}</span><span class="br-v">${v}${sub ? `<small>${sub}</small>` : ""}</span></div>`;
+    brief.innerHTML = `<div class="br-card"><h2>Condições da partida</h2>`
+      + row(b.arena ? "🏟️" : "🏖️", "Local", b.arena ? "Arena" : "Praia aberta", b.period === 3 ? "refletores acesos" : "")
+      + row(PER[b.period][0], "Período", PER[b.period][1])
+      + row(SKY[b.sky][0], "Tempo", SKY[b.sky][1], b.sky === 2 ? "areia molhada: todas correm menos" : "")
+      + row(b.wind > 0 ? `<i class="br-arrow" style="transform:rotate(${b.windDeg}deg)">↑</i>` : "🍃", "Vento", wind, b.windTxt)
+      + `<div class="br-btns"><button type="button" id="brBack">Menu</button><button type="button" class="main" id="brGo">Começar</button></div></div>`;
+    brief.hidden = false; document.body.classList.add("brief");
+    $("brGo").onclick = () => { brief.hidden = true; document.body.classList.remove("brief"); game.begin(); };
+    $("brBack").onclick = () => { game.endMatch(); open(); };   // desistiu antes de começar: volta à capa (nada foi jogado)
+  };
+  const open = (): void => { game.coverOn(true); cover.hidden = false; document.body.classList.add("menu"); document.body.classList.remove("ended", "brief"); card.hidden = true; brief.hidden = true; renderRank(); renderCams(); };
   const camEdit = initCamEdit(game, () => open());
   $("cvCamEdit").onclick = () => { game.coverOn(false); cover.hidden = true; document.body.classList.remove("menu"); camEdit.open(); };
   const close = (): void => { game.coverOn(false); cover.hidden = true; document.body.classList.remove("menu"); rankBox.hidden = true; };
@@ -51,7 +66,7 @@ export function initMenu(game: Game, openGallery: () => void): void {
     rankBox.innerHTML = `<table><tr><th class="l">Single</th><th>Vitórias</th><th>Derrotas</th></tr>${tab("")}</table>${hasD ? `<table><tr><th class="l">Duplas</th><th>Vitórias</th><th>Derrotas</th></tr>${tab("d_")}</table>` : ""}${co.length ? `<table><tr><th class="l">Frescobol</th><th>Rebatidas</th><th>Tempo</th></tr>${co.map((x) => `<tr><td class="l">${x.txt}</td><td>${x.b.hits}</td><td>${fmtTime(x.b.secs)}</td></tr>`).join("")}</table>` : ""}${last ? `<h3>Últimas partidas</h3><table>${last}</table>` : co.length ? "" : "<h3>Ainda sem partidas</h3>"}`;
   };
 
-  $("cvMatch").onclick = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify({ fmt: fmtSel.value, lvl: lvlSel.value, mode: modeSel.value })); } catch { /* sem storage */ } close(); game.startMatch(fmtSel.value, lvlSel.value, modeSel.value === "duplas" ? "duplas" : "single"); };
+  $("cvMatch").onclick = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify({ fmt: fmtSel.value, lvl: lvlSel.value, mode: modeSel.value })); } catch { /* sem storage */ } close(); game.startMatch(fmtSel.value, lvlSel.value, modeSel.value === "duplas" ? "duplas" : "single", true); };
   $("cvFresco").onclick = () => { try { localStorage.setItem(PREF_KEY, JSON.stringify({ fmt: fmtSel.value, lvl: lvlSel.value, mode: modeSel.value })); } catch { /* sem storage */ } close(); game.startMatch(fmtSel.value, lvlSel.value, "frescobol"); };   // usa o formato e o nível escolhidos; o "Modo" (single/duplas) não vale aqui
   $("cvTrain").onclick = () => { close(); game.setMode("train"); if (S.autoServe) game.serve(); };
   $("cvMoves").onclick = () => { close(); game.setMode("train"); openGallery(); };
@@ -94,7 +109,7 @@ export function initMenu(game: Game, openGallery: () => void): void {
     const won = winner === 0;
     card.innerHTML = `<h2>${won ? "Vitória!" : "Derrota"}</h2><p>${won ? (v.doubles ? "Parabéns, Jaqueline e Lari!" : "Parabéns, Jaqueline!") : "Quase! Tente de novo."}</p><p>${v.history || "—"}</p><small>${v.fresco ? "Frescobol · " : v.doubles ? "Duplas · " : ""}${v.fmt} · ${v.level}</small><div class="btns"><button class="main" id="ecAgain">Jogar de novo</button><button id="ecMenu">Menu</button></div>`;
     card.hidden = false; document.body.classList.add("ended");   // o cartão fica embaixo: quem venceu dança a dança inteira por cima
-    $("ecAgain").onclick = () => { card.hidden = true; document.body.classList.remove("ended"); game.startMatch(v.fmtId, v.levelId, v.fresco ? "frescobol" : v.doubles ? "duplas" : "single"); };
+    $("ecAgain").onclick = () => { card.hidden = true; document.body.classList.remove("ended"); game.startMatch(v.fmtId, v.levelId, v.fresco ? "frescobol" : v.doubles ? "duplas" : "single", true); };
     $("ecMenu").onclick = () => { card.hidden = true; document.body.classList.remove("ended"); game.endMatch(); open(); };
   };
   open();
